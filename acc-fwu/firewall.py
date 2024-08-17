@@ -2,6 +2,7 @@ import os
 import requests
 import configparser
 
+REQUESTS_TIMEOUT = 5 # Request timeout in seconds
 CONFIG_FILE_PATH = os.path.expanduser("~/.acc-fwu-config")
 LINODE_CLI_CONFIG_PATH = os.path.expanduser("~/.config/linode-cli")
 
@@ -35,8 +36,7 @@ def get_api_token():
         raise ValueError("Invalid JSON in Linode CLI configuration file.")
 
 def get_public_ip():
-    response = requests.get("https://api.ipify.org?format=json")
-    response.raise_for_status()
+    response = requests.get("https://api.ipify.org?format=json", timeout=REQUESTS_TIMEOUT)
     return response.json()["ip"]
 
 def update_firewall_rule(firewall_id=None, label=None):
@@ -67,7 +67,8 @@ def update_firewall_rule(firewall_id=None, label=None):
     }
 
     # Get existing rules
-    response = requests.get(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules", headers=headers)
+    response = requests.get(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules", 
+                                headers=headers, timeout=REQUESTS_TIMEOUT)
     response.raise_for_status()
     rules = response.json()["inbound"]
 
@@ -77,7 +78,7 @@ def update_firewall_rule(firewall_id=None, label=None):
             # Update existing rule
             rule_id = rule["id"]
             response = requests.put(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules/{rule_id}",
-                                    headers=headers, json=firewall_rule)
+                                    headers=headers, json=firewall_rule, timeout=REQUESTS_TIMEOUT)
             response.raise_for_status()
             print(f"Updated firewall rule: {label}")
             return
@@ -85,6 +86,6 @@ def update_firewall_rule(firewall_id=None, label=None):
     # If the rule doesn't exist, create a new one
     rules.append(firewall_rule)
     response = requests.put(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules",
-                            headers=headers, json={"inbound": rules})
+                            headers=headers, json={"inbound": rules}, timeout=REQUESTS_TIMEOUT)
     response.raise_for_status()
     print(f"Created new firewall rule: {label}")
