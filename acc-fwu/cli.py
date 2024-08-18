@@ -1,5 +1,5 @@
 import argparse
-from linode_firewall_tool.firewall import update_firewall_rule
+from firewall import update_firewall_rule  # Import from the same directory since cli.py and firewall.py are in acc-fwu
 
 def main():
     parser = argparse.ArgumentParser(description="Create or update a Linode firewall rule with your current IP address.")
