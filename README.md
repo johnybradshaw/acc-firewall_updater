@@ -26,7 +26,7 @@ pip install -e .
 
 ### First-time Setup
 
-The first time you use `acc-fwu`, you’ll need to provide your Linode/ACC Firewall ID and the label for the rule you want to create or update:
+The first time you use `acc-fwu`, you’ll need to provide your Linode/ACC Firewall ID and *optionally* the label for the rule you want to create or update:
 
 ```bash
 acc-fwu --firewall_id <FIREWALL_ID> --label <RULE_LABEL>
@@ -65,6 +65,14 @@ acc-fwu --firewall_id <NEW_FIREWALL_ID> --label <NEW_RULE_LABEL>
 ```
 
 This will update the configuration file with the new values.
+
+### Removing Firewall Rules
+
+You can remove the firewall rule by running:
+
+```bash
+acc-fwu --remove
+```
 
 ## Configuration File
 
