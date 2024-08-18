@@ -16,10 +16,12 @@ setup(
     author="John Bradshaw",
     author_email="acc-fwu@bradshaw.cloud",
     description="A tool to update Linode/ACC firewall rules with your current IP address.",
+    long_description=open("README.md").read(),
+    long_description_content_type="text/markdown",
     url="https://github.com/johnybradshaw/acc-firewall_updater",
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: GNU Public License v3 (GPLv3)",
+        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.6",
