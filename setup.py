@@ -7,8 +7,8 @@ with open("README.md") as f:
 setup(
     name="acc-fwu",
     version="0.1.1",
-    packages=find_packages(where="src"),  # Finds packages in the 'src' directory
     package_dir={"": "src"},  # Sets 'acc-fwu' as the root directory for packages
+    packages=find_packages(where="src"),  # Finds packages in the 'src' directory
     install_requires=[
         "requests",
     ],
