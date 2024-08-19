@@ -1,4 +1,8 @@
+import os
 from setuptools import setup, find_packages
+
+with open("README.md") as f:
+    long_description = f.read()
 
 setup(
     name="acc-fwu",
@@ -16,7 +20,7 @@ setup(
     author="John Bradshaw",
     author_email="acc-fwu@bradshaw.cloud",
     description="A tool to update Linode/ACC firewall rules with your current IP address.",
-    long_description=open("README.md").read(),
+    long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/johnybradshaw/acc-firewall_updater",
     classifiers=[
