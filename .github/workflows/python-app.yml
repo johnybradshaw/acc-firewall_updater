@@ -74,7 +74,7 @@ jobs:
       run: echo "PYTHONPATH=$PYTHONPATH:$GITHUB_WORKSPACE/src" >> $GITHUB_ENV
 
     - name: Bandit Scan
-      uses: shundor/python-bandit-scan@v1
+      uses: shundor/bandit-action@v1
       with: # optional arguments
         # exit with 0, even with results found
         exit_zero: false # optional, default is DEFAULT
