@@ -125,7 +125,8 @@ def remove_firewall_rule(firewall_id, label, debug=False):
     }
 
     # Get existing rules
-    response = requests.get(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules", headers=headers)
+    response = requests.get(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules", 
+                                headers=headers, timeout=REQUESTS_TIMEOUT)
     response.raise_for_status()
     existing_rules = response.json()["inbound"]
 
@@ -143,7 +144,7 @@ def remove_firewall_rule(firewall_id, label, debug=False):
     else:
         # Replace all inbound rules with the filtered list
         response = requests.put(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules",
-                                headers=headers, json={"inbound": filtered_rules})
+                                    headers=headers, json={"inbound": filtered_rules}, timeout=REQUESTS_TIMEOUT)
         if response.status_code != 200:
             print("Response status code:", response.status_code)
             print("Response content:", response.content)
@@ -181,7 +182,8 @@ def update_firewall_rule(firewall_id: str, label: str, debug: bool = False) -> N
     protocols = ["TCP", "UDP", "ICMP"]  # List of protocols to create rules for
 
     # Get existing rules
-    response = requests.get(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules", headers=headers)
+    response = requests.get(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules", 
+                                headers=headers, timeout=REQUESTS_TIMEOUT)
     response.raise_for_status()
     existing_rules = response.json()["inbound"]
 
@@ -214,7 +216,8 @@ def update_firewall_rule(firewall_id: str, label: str, debug: bool = False) -> N
 
     # Replace all inbound rules with the updated list
     response = requests.put(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules",
-                            headers=headers, json={"inbound": combined_rules})
+                                headers=headers, json={"inbound": combined_rules}, 
+                                timeout=REQUESTS_TIMEOUT)
     if response.status_code != 200:
         print("Response status code:", response.status_code)
         print("Response content:", response.content)
