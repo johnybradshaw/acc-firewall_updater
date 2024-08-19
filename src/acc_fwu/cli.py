@@ -1,5 +1,5 @@
 import argparse
-from firewall import update_firewall_rule, remove_firewall_rule, load_config, save_config
+from .firewall import update_firewall_rule, remove_firewall_rule, load_config, save_config
 
 def main():
     parser = argparse.ArgumentParser(description="Create, update, or remove Linode firewall rules with your current IP address.")
