@@ -26,6 +26,9 @@ jobs:
       with:
         python-version: "3.x"
 
+    - name: Set up PYTHONPATH
+      run: echo "PYTHONPATH=$PYTHONPATH:$GITHUB_WORKSPACE/src" >> $GITHUB_ENV
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
