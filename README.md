@@ -19,7 +19,7 @@ Alternatively, you can install it directly from the source:
 ```bash
 git clone https://github.com/johnybradshaw/acc-firewall_updater.git
 cd acc-firewall_updater
-pip install -e .
+pip install --use-pep517 .
 ```
 
 ## Usage
