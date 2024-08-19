@@ -2,30 +2,74 @@ import os
 import requests
 import configparser
 
+# Constants
 REQUESTS_TIMEOUT = 5 # Request timeout in seconds
-CONFIG_FILE_PATH = os.path.expanduser("~/.acc-fwu-config")
-LINODE_CLI_CONFIG_PATH = os.path.expanduser("~/.config/linode-cli")
+CONFIG_FILE_PATH = os.path.expanduser("~/.acc-fwu-config") # Configuration file path
+LINODE_CLI_CONFIG_PATH = os.path.expanduser("~/.config/linode-cli") # Linode CLI configuration path
 
 def load_config():
-    config_path = os.path.expanduser("~/.acc-fwu-config")
+    """
+    Load the firewall ID and label from the configuration file.
+
+    This function reads the configuration file located at `CONFIG_FILE_PATH` and
+    retrieves the firewall ID and label. If the configuration file does not exist,
+    a `FileNotFoundError` is raised.
+
+    Returns:
+        tuple: A tuple containing the firewall ID and label.
+
+    Raises:
+        FileNotFoundError: If the configuration file does not exist.
+    """
+    # Create a ConfigParser object
     config = configparser.ConfigParser()
-    if os.path.exists(config_path):
-        config.read(config_path)
+
+    # Check if the configuration file exists
+    if os.path.exists(CONFIG_FILE_PATH):
+        # Read the configuration file
+        config.read(CONFIG_FILE_PATH)
+
+        # Get the firewall ID and label from the configuration
         firewall_id = config.get("DEFAULT", "firewall_id", fallback=None)
         label = config.get("DEFAULT", "label", fallback=None)
+
+        # Return the firewall ID and label
         return firewall_id, label
     else:
-        raise FileNotFoundError(f"No configuration file found at {config_path}. Please run the script with --firewall_id and --label first.")
-
+        # Raise an error if the configuration file does not exist
+        raise FileNotFoundError(
+            f"No configuration file found at {CONFIG_FILE_PATH}. "
+            "Please run the script with --firewall_id and --label first."
+        )
 
 def save_config(firewall_id, label):
+    """
+    Save the firewall ID and label to the configuration file.
+
+    This function saves the firewall ID and label to the configuration file at
+    `CONFIG_FILE_PATH`.
+
+    Args:
+        firewall_id (str): The ID of the firewall rule.
+        label (str): The label of the firewall rule.
+
+    Returns:
+        None
+    """
+    # Create a ConfigParser object
     config = configparser.ConfigParser()
-    config["DEFAULT"] = {
+    
+    # Add the firewall ID and label to the default section
+    config["DEFAULT"] = { 
         "firewall_id": firewall_id,
         "label": label
     }
+    
+    # Open the configuration file in write mode
     with open(CONFIG_FILE_PATH, "w") as configfile:
         config.write(configfile)
+    
+    # Print a success message
     print(f"Configuration saved to {CONFIG_FILE_PATH}")
 
 def get_api_token():
@@ -40,7 +84,7 @@ def get_api_token():
         str: The API token.
     """
     config = configparser.ConfigParser()
-    if not os.path.exists(LINODE_CLI_CONFIG_PATH):
+    if not os.path.exists(LINODE_CLI_CONFIG_PATH): 
         raise FileNotFoundError("Linode CLI configuration not found. Please ensure that linode-cli is configured.")
     config.read(LINODE_CLI_CONFIG_PATH)
     
@@ -110,7 +154,22 @@ def remove_firewall_rule(firewall_id, label, debug=False):
     if debug:
         print("Remaining rules data after removal:", filtered_rules)  # Debugging output
 
-def update_firewall_rule(firewall_id, label, debug=False):
+def update_firewall_rule(firewall_id: str, label: str, debug: bool = False) -> None:
+    """
+    Update the firewall rules for the given firewall ID and label by adding new rules with the current public IP address.
+
+    This function will not modify any existing rules that do not match the given label, and will only create new rules if
+    there is no existing rule with the same label.
+
+    Args:
+        firewall_id (str): The ID of the firewall to update
+        label (str): The label for the firewall rules
+        debug (bool): Whether to print debugging output
+
+    Returns:
+        None
+    """
+
     api_token = get_api_token()
     headers = {
         "Authorization": f"Bearer {api_token}",
