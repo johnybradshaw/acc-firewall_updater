@@ -157,10 +157,9 @@ def remove_firewall_rule(firewall_id, label, debug=False):
 
 def update_firewall_rule(firewall_id: str, label: str, debug: bool = False) -> None:
     """
-    Update the firewall rules for the given firewall ID and label by adding new rules with the current public IP address.
+    Update the firewall rules for the given firewall ID and label by adding or updating rules with the current public IP address.
 
-    This function will not modify any existing rules that do not match the given label, and will only create new rules if
-    there is no existing rule with the same label.
+    This function modifies existing rules that match the given label or creates new rules if they don't exist.
 
     Args:
         firewall_id (str): The ID of the firewall to update
@@ -183,17 +182,18 @@ def update_firewall_rule(firewall_id: str, label: str, debug: bool = False) -> N
 
     # Get existing rules
     response = requests.get(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules", 
-                                headers=headers, timeout=REQUESTS_TIMEOUT)
+                            headers=headers, timeout=REQUESTS_TIMEOUT)
     response.raise_for_status()
     existing_rules = response.json()["inbound"]
 
     if debug:
         print("Existing rules data:", existing_rules)  # Debugging output to inspect the structure
 
-    new_rules = []
+    updated_rules = []
     for protocol in protocols:
+        rule_label = f"{label}-{protocol}"  # Create a label specific to the protocol
         firewall_rule = {
-            "label": f"{label}-{protocol}",  # Append protocol to the label
+            "label": rule_label,
             "action": "ACCEPT",
             "protocol": protocol,
             "addresses": {
@@ -206,18 +206,25 @@ def update_firewall_rule(firewall_id: str, label: str, debug: bool = False) -> N
         if ipv6_addresses:
             firewall_rule["addresses"]["ipv6"] = ipv6_addresses
 
-        # Check if a rule with the same label already exists
-        rule_exists = any(rule for rule in existing_rules if rule["label"] == firewall_rule["label"])
-        if not rule_exists:
-            new_rules.append(firewall_rule)
+        # Check if a rule with the same label exists
+        rule_updated = False
+        for rule in existing_rules:
+            if rule["label"] == rule_label:
+                # Update the existing rule with the new IP address
+                rule["addresses"]["ipv4"] = [ip_address]
+                rule_updated = True
+                break
 
-    # Combine existing rules with new rules, avoiding duplicates
-    combined_rules = existing_rules + new_rules
+        if not rule_updated:
+            updated_rules.append(firewall_rule)
+
+    # Combine existing rules with the updated or new rules
+    combined_rules = existing_rules + updated_rules
 
     # Replace all inbound rules with the updated list
     response = requests.put(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules",
-                                headers=headers, json={"inbound": combined_rules}, 
-                                timeout=REQUESTS_TIMEOUT)
+                            headers=headers, json={"inbound": combined_rules}, 
+                            timeout=REQUESTS_TIMEOUT)
     if response.status_code != 200:
         print("Response status code:", response.status_code)
         print("Response content:", response.content)

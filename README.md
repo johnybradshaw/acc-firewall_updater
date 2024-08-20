@@ -80,6 +80,10 @@ The `acc-fwu` tool saves the `firewall_id` and `label` in a configuration file l
 
 ## Summary of Changes
 
+### 2024-08-20
+
+- **Fixes**: Fixed issue with updating the firewall rule.
+
 ### 2024-08-18
 
 - **Remove Firewall Rules**: Instructions on how to remove the firewall rule.
