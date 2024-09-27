@@ -57,53 +57,61 @@ jobs:
         python setup.py sdist bdist_wheel
 
   scan:
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
+  permissions:
+    contents: read
+    security-events: write
+    actions: read
 
-    needs: test
+  needs: test
 
-    runs-on: ubuntu-latest
+  runs-on: ubuntu-latest
 
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+  steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
-    - name: Set up Python 3.x
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.x"
+  - name: Set up Python 3.x
+    uses: actions/setup-python@v5
+    with:
+      python-version: "3.x"
 
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
+  - name: Cache pip dependencies
+    uses: actions/cache@v4
+    with:
+      path: ~/.cache/pip
+      key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+      restore-keys: |
+        ${{ runner.os }}-pip-
 
-    - name: Set up PYTHONPATH
-      run: echo "PYTHONPATH=$PYTHONPATH:$GITHUB_WORKSPACE/src" >> $GITHUB_ENV
+  - name: Set up PYTHONPATH
+    run: echo "PYTHONPATH=$PYTHONPATH:$GITHUB_WORKSPACE/src" >> $GITHUB_ENV
 
-    - name: Bandit Scan
-      uses: shundor/python-bandit-scan@9cc5aa4a006482b8a7f91134412df6772dbda22c
-      with:
-        exit_zero: false
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  - name: Install dependencies
+    run: |
+      python -m pip install --upgrade pip
+      pip install setuptools wheel
+      if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    - name: Run Snyk to check for vulnerabilities
-      uses: snyk/actions/python@master
-      continue-on-error: true
-      env:
-        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-      with:
-        args: --sarif-file-output=snyk.sarif
+  - name: Bandit Scan
+    uses: shundor/python-bandit-scan@9cc5aa4a006482b8a7f91134412df6772dbda22c
+    with:
+      exit_zero: false
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Upload result to GitHub Code Scanning
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: snyk.sarif
+  - name: Run Snyk to check for vulnerabilities
+    uses: snyk/actions/python@master
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    with:
+      args: --sarif-file-output=snyk.sarif
+
+  - name: Verify snyk.sarif file
+    run: ls -la snyk.sarif
+
+  - name: Upload result to GitHub Code Scanning
+    uses: github/codeql-action/upload-sarif@v3
+    with:
+      sarif_file: snyk.sarif
 
   build:
 
