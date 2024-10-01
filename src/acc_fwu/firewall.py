@@ -230,4 +230,4 @@ def update_firewall_rule(firewall_id: str, label: str, debug: bool = False) -> N
         print("Response content:", response.content)
         response.raise_for_status()
     
-    print(f"Created/updated firewall rules for {label}")
+    print(f"Created/updated firewall rules for {label} - [{ip_address}]")
