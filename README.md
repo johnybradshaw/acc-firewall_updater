@@ -80,6 +80,10 @@ The `acc-fwu` tool saves the `firewall_id` and `label` in a configuration file l
 
 ## Summary of Changes
 
+### 2024-10-01
+
+- **Show IP Address**: Now shows the current public IP address when it is updated.
+
 ### 2024-08-20
 
 - **Fixes**: Fixed issue with updating the firewall rule.
