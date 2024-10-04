@@ -3,6 +3,9 @@ name: Test, Scan, Build, & Publish
 on:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - '**.md'
+      - '**.yml'
   pull_request:
     branches: [ "main" ]
   release:
