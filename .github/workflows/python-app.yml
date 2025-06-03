@@ -103,7 +103,7 @@ jobs:
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
     - name: Bandit Scan
-      uses: shundor/python-bandit-scan@9cc5aa4a006482b8a7f91134412df6772dbda22c
+      uses: shundor/python-bandit-scan@v1.0
       with:
         exit_zero: false
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
