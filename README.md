@@ -8,10 +8,10 @@ A tool to automatically update the [Akamai Connected Cloud (ACC) / Linode](https
 
 ## Installation
 
-You can install the package via `pip`:
+You can install the package via `pip` or `pipx`:
 
 ```bash
-pip install acc-fwu
+pipx install acc-fwu
 ```
 
 Alternatively, you can install it directly from the source:
