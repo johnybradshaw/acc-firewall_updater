@@ -80,19 +80,23 @@ The `acc-fwu` tool saves the `firewall_id` and `label` in a configuration file l
 
 ## Summary of Changes
 
-### 2024-10-01
+### 2025-06-03 - v0.1.4
+
+- **Security Fixes**: Updated Python dependencies to resolve security vulnerabilities.
+
+### 2024-10-01 - v0.1.3
 
 - **Show IP Address**: Now shows the current public IP address when it is updated.
 
-### 2024-08-20
+### 2024-08-20 - v0.1.2
 
 - **Fixes**: Fixed issue with updating the firewall rule.
 
-### 2024-08-18
+### 2024-08-18 - v0.1.1
 
 - **Remove Firewall Rules**: Instructions on how to remove the firewall rule.
 
-### 2024-08-17
+### 2024-08-17 - v0.1.0
 
 - **First-time Setup**: Instructions on how to set the `firewall_id` and `label` the first time you use the tool.
 - **Subsequent Usage**: Information about running the tool without additional arguments after the initial setup.
