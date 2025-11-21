@@ -169,7 +169,7 @@ This project is licensed under the GNU General Public License v3 (GPLv3) - see t
 
 ## Summary of Changes
 
-### 2025-xx-xx - v0.1.5 (Unreleased)
+### 2025-11-21 - v0.1.5
 
 - **New Features**:
   - Added `--version` / `-v` flag to display installed version
