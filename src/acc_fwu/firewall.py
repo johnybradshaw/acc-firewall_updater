@@ -1,11 +1,74 @@
 import os
+import re
+import stat
 import requests
 import configparser
 
 # Constants
-REQUESTS_TIMEOUT = 5 # Request timeout in seconds
-CONFIG_FILE_PATH = os.path.expanduser("~/.acc-fwu-config") # Configuration file path
-LINODE_CLI_CONFIG_PATH = os.path.expanduser("~/.config/linode-cli") # Linode CLI configuration path
+REQUESTS_TIMEOUT = 5  # Request timeout in seconds
+CONFIG_FILE_PATH = os.path.expanduser("~/.acc-fwu-config")  # Configuration file path
+LINODE_CLI_CONFIG_PATH = os.path.expanduser("~/.config/linode-cli")  # Linode CLI configuration path
+
+# Validation patterns
+FIREWALL_ID_PATTERN = re.compile(r"^\d+$")  # Numeric firewall IDs only
+LABEL_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")  # Alphanumeric, underscore, hyphen, max 32 chars
+IPV4_PATTERN = re.compile(r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$")
+
+
+def validate_firewall_id(firewall_id):
+    """
+    Validate that the firewall ID is a numeric string.
+
+    Args:
+        firewall_id (str): The firewall ID to validate.
+
+    Returns:
+        bool: True if valid.
+
+    Raises:
+        ValueError: If the firewall ID is invalid.
+    """
+    if not firewall_id or not FIREWALL_ID_PATTERN.match(str(firewall_id)):
+        raise ValueError(f"Invalid firewall ID: must be numeric, got '{firewall_id}'")
+    return True
+
+
+def validate_label(label):
+    """
+    Validate that the label is safe for use in API requests.
+
+    Args:
+        label (str): The label to validate.
+
+    Returns:
+        bool: True if valid.
+
+    Raises:
+        ValueError: If the label is invalid.
+    """
+    if not label or not LABEL_PATTERN.match(label):
+        raise ValueError(
+            f"Invalid label: must be 1-32 alphanumeric characters, underscores, or hyphens, got '{label}'"
+        )
+    return True
+
+
+def validate_ip_address(ip_address):
+    """
+    Validate that the IP address is a valid IPv4 address.
+
+    Args:
+        ip_address (str): The IP address to validate.
+
+    Returns:
+        bool: True if valid.
+
+    Raises:
+        ValueError: If the IP address is invalid.
+    """
+    if not ip_address or not IPV4_PATTERN.match(ip_address):
+        raise ValueError(f"Invalid IPv4 address received: '{ip_address}'")
+    return True
 
 def load_config():
     """
@@ -42,35 +105,51 @@ def load_config():
             "Please run the script with --firewall_id and --label first."
         )
 
-def save_config(firewall_id, label):
+def save_config(firewall_id, label, quiet=False):
     """
     Save the firewall ID and label to the configuration file.
 
     This function saves the firewall ID and label to the configuration file at
-    `CONFIG_FILE_PATH`.
+    `CONFIG_FILE_PATH` with secure permissions (readable only by owner).
 
     Args:
         firewall_id (str): The ID of the firewall rule.
         label (str): The label of the firewall rule.
+        quiet (bool): If True, suppress output messages.
 
     Returns:
         None
+
+    Raises:
+        ValueError: If firewall_id or label are invalid.
     """
+    # Validate inputs before saving
+    validate_firewall_id(firewall_id)
+    validate_label(label)
+
     # Create a ConfigParser object
     config = configparser.ConfigParser()
-    
+
     # Add the firewall ID and label to the default section
-    config["DEFAULT"] = { 
+    config["DEFAULT"] = {
         "firewall_id": firewall_id,
         "label": label
     }
-    
-    # Open the configuration file in write mode
-    with open(CONFIG_FILE_PATH, "w") as configfile:
-        config.write(configfile)
-    
+
+    # Open the configuration file in write mode with secure permissions
+    # Create file with restrictive permissions (owner read/write only)
+    old_umask = os.umask(0o077)
+    try:
+        with open(CONFIG_FILE_PATH, "w") as configfile:
+            config.write(configfile)
+        # Ensure permissions are set correctly even if file existed
+        os.chmod(CONFIG_FILE_PATH, stat.S_IRUSR | stat.S_IWUSR)
+    finally:
+        os.umask(old_umask)
+
     # Print a success message
-    print(f"Configuration saved to {CONFIG_FILE_PATH}")
+    if not quiet:
+        print(f"Configuration saved to {CONFIG_FILE_PATH}")
 
 def get_api_token():
     """
@@ -109,15 +188,43 @@ def get_public_ip():
 
     Returns:
         str: The public IP address of the machine.
+
+    Raises:
+        ValueError: If the returned IP address is invalid.
+        requests.RequestException: If the HTTP request fails.
     """
     response = requests.get(
         "https://api.ipify.org?format=json",
         timeout=REQUESTS_TIMEOUT
     )
-    # Get the IP address from the response JSON
-    return response.json()["ip"]
+    response.raise_for_status()
 
-def remove_firewall_rule(firewall_id, label, debug=False):
+    # Get the IP address from the response JSON
+    ip_address = response.json().get("ip")
+
+    # Validate the IP address before returning
+    validate_ip_address(ip_address)
+
+    return ip_address
+
+def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=False):
+    """
+    Remove firewall rules matching the given label.
+
+    Args:
+        firewall_id (str): The ID of the firewall.
+        label (str): The label prefix of rules to remove.
+        debug (bool): If True, print debug information.
+        quiet (bool): If True, suppress output messages.
+        dry_run (bool): If True, show what would be removed without making changes.
+
+    Raises:
+        ValueError: If firewall_id or label are invalid.
+    """
+    # Validate inputs
+    validate_firewall_id(firewall_id)
+    validate_label(label)
+
     api_token = get_api_token()
     headers = {
         "Authorization": f"Bearer {api_token}",
@@ -125,50 +232,83 @@ def remove_firewall_rule(firewall_id, label, debug=False):
     }
 
     # Get existing rules
-    response = requests.get(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules", 
-                                headers=headers, timeout=REQUESTS_TIMEOUT)
+    response = requests.get(
+        f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules",
+        headers=headers,
+        timeout=REQUESTS_TIMEOUT
+    )
     response.raise_for_status()
-    existing_rules = response.json()["inbound"]
+    existing_rules = response.json().get("inbound", [])
 
     if debug:
-        print("Existing rules data before removal:", existing_rules)  # Debugging output
+        print("Existing rules data before removal:", existing_rules)
 
     # Filter out the rules that match the given label for all protocols
+    protocols = ["TCP", "UDP", "ICMP"]
     filtered_rules = [
         rule for rule in existing_rules
-        if not any(rule["label"] == f"{label}-{protocol}" for protocol in ["TCP", "UDP", "ICMP"])
+        if not any(rule.get("label") == f"{label}-{protocol}" for protocol in protocols)
     ]
 
-    if len(filtered_rules) == len(existing_rules):
-        print(f"No rules found with label '{label}' to remove.")
-    else:
-        # Replace all inbound rules with the filtered list
-        response = requests.put(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules",
-                                    headers=headers, json={"inbound": filtered_rules}, timeout=REQUESTS_TIMEOUT)
-        if response.status_code != 200:
+    rules_to_remove = len(existing_rules) - len(filtered_rules)
+
+    if rules_to_remove == 0:
+        if not quiet:
+            print(f"No rules found with label '{label}' to remove.")
+        return
+
+    if dry_run:
+        print(f"[DRY RUN] Would remove {rules_to_remove} rule(s) with label '{label}'")
+        return
+
+    # Replace all inbound rules with the filtered list
+    response = requests.put(
+        f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules",
+        headers=headers,
+        json={"inbound": filtered_rules},
+        timeout=REQUESTS_TIMEOUT
+    )
+    if response.status_code != 200:
+        if debug:
             print("Response status code:", response.status_code)
             print("Response content:", response.content)
-            response.raise_for_status()
+        response.raise_for_status()
 
-        print(f"Removed firewall rules for {label}")
+    if not quiet:
+        print(f"Removed {rules_to_remove} firewall rule(s) for {label}")
 
     if debug:
-        print("Remaining rules data after removal:", filtered_rules)  # Debugging output
+        print("Remaining rules data after removal:", filtered_rules)
 
-def update_firewall_rule(firewall_id: str, label: str, debug: bool = False) -> None:
+def update_firewall_rule(
+    firewall_id: str,
+    label: str,
+    debug: bool = False,
+    quiet: bool = False,
+    dry_run: bool = False
+) -> None:
     """
-    Update the firewall rules for the given firewall ID and label by adding or updating rules with the current public IP address.
+    Update firewall rules by adding or updating rules with the current public IP address.
 
-    This function modifies existing rules that match the given label or creates new rules if they don't exist.
+    This function modifies existing rules that match the given label or creates
+    new rules if they don't exist.
 
     Args:
-        firewall_id (str): The ID of the firewall to update
-        label (str): The label for the firewall rules
-        debug (bool): Whether to print debugging output
+        firewall_id (str): The ID of the firewall to update.
+        label (str): The label for the firewall rules.
+        debug (bool): Whether to print debugging output.
+        quiet (bool): If True, suppress output messages.
+        dry_run (bool): If True, show what would be changed without making changes.
 
     Returns:
         None
+
+    Raises:
+        ValueError: If firewall_id or label are invalid.
     """
+    # Validate inputs
+    validate_firewall_id(firewall_id)
+    validate_label(label)
 
     api_token = get_api_token()
     headers = {
@@ -176,58 +316,72 @@ def update_firewall_rule(firewall_id: str, label: str, debug: bool = False) -> N
         "Content-Type": "application/json"
     }
 
-    ip_address = get_public_ip() + "/32"  # Append /32 to the IP address
+    ip_address = get_public_ip()
+    ip_with_mask = f"{ip_address}/32"
 
-    protocols = ["TCP", "UDP", "ICMP"]  # List of protocols to create rules for
+    protocols = ["TCP", "UDP", "ICMP"]
 
     # Get existing rules
-    response = requests.get(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules", 
-                            headers=headers, timeout=REQUESTS_TIMEOUT)
+    response = requests.get(
+        f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules",
+        headers=headers,
+        timeout=REQUESTS_TIMEOUT
+    )
     response.raise_for_status()
-    existing_rules = response.json()["inbound"]
+    existing_rules = response.json().get("inbound", [])
 
     if debug:
-        print("Existing rules data:", existing_rules)  # Debugging output to inspect the structure
+        print("Existing rules data:", existing_rules)
 
     updated_rules = []
+    rules_updated_count = 0
+    rules_created_count = 0
+
     for protocol in protocols:
-        rule_label = f"{label}-{protocol}"  # Create a label specific to the protocol
+        rule_label = f"{label}-{protocol}"
         firewall_rule = {
             "label": rule_label,
             "action": "ACCEPT",
             "protocol": protocol,
             "addresses": {
-                "ipv4": [ip_address],
+                "ipv4": [ip_with_mask],
             }
         }
-
-        # Only include the ipv6 field if it's not empty
-        ipv6_addresses = []
-        if ipv6_addresses:
-            firewall_rule["addresses"]["ipv6"] = ipv6_addresses
 
         # Check if a rule with the same label exists
         rule_updated = False
         for rule in existing_rules:
-            if rule["label"] == rule_label:
+            if rule.get("label") == rule_label:
                 # Update the existing rule with the new IP address
-                rule["addresses"]["ipv4"] = [ip_address]
+                rule["addresses"]["ipv4"] = [ip_with_mask]
                 rule_updated = True
+                rules_updated_count += 1
                 break
 
         if not rule_updated:
             updated_rules.append(firewall_rule)
+            rules_created_count += 1
 
     # Combine existing rules with the updated or new rules
     combined_rules = existing_rules + updated_rules
 
+    if dry_run:
+        print(f"[DRY RUN] Would update {rules_updated_count} and create {rules_created_count} "
+              f"rule(s) for {label} with IP {ip_with_mask}")
+        return
+
     # Replace all inbound rules with the updated list
-    response = requests.put(f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules",
-                            headers=headers, json={"inbound": combined_rules}, 
-                            timeout=REQUESTS_TIMEOUT)
+    response = requests.put(
+        f"https://api.linode.com/v4/networking/firewalls/{firewall_id}/rules",
+        headers=headers,
+        json={"inbound": combined_rules},
+        timeout=REQUESTS_TIMEOUT
+    )
     if response.status_code != 200:
-        print("Response status code:", response.status_code)
-        print("Response content:", response.content)
+        if debug:
+            print("Response status code:", response.status_code)
+            print("Response content:", response.content)
         response.raise_for_status()
-    
-    print(f"Created/updated firewall rules for {label} - [{ip_address}]")
+
+    if not quiet:
+        print(f"Created/updated firewall rules for {label} - [{ip_with_mask}]")
