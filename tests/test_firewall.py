@@ -1,117 +1,263 @@
 import pytest
+import stat
 from unittest import mock
 import requests
 from acc_fwu.firewall import (
     load_config, save_config, get_api_token, get_public_ip,
-    remove_firewall_rule, update_firewall_rule, CONFIG_FILE_PATH, LINODE_CLI_CONFIG_PATH
+    remove_firewall_rule, update_firewall_rule, CONFIG_FILE_PATH, LINODE_CLI_CONFIG_PATH,
+    validate_firewall_id, validate_label, validate_ip_address
 )
 import os
 
-def test_load_config(tmp_path, monkeypatch):
-    # Create a temporary config file with the expected content
-    config_file = tmp_path / ".acc-fwu-config"
-    config_file.write_text("[DEFAULT]\nfirewall_id = 12345\nlabel = Test-Label\n")
-    
-    # Correctly reference CONFIG_FILE_PATH in the acc_fwu.firewall module
-    print("Testing CONFIG_FILE_PATH:", str(config_file))
 
-    # Use monkeypatch to override CONFIG_FILE_PATH in the firewall module
-    monkeypatch.setattr("acc_fwu.firewall.CONFIG_FILE_PATH", str(config_file))
+class TestValidation:
+    """Tests for input validation functions."""
 
-    # Now run the function and check the output
-    firewall_id, label = load_config()
-    assert firewall_id == "12345"
-    assert label == "Test-Label"
+    def test_validate_firewall_id_valid(self):
+        assert validate_firewall_id("12345") is True
+        assert validate_firewall_id("1") is True
+        assert validate_firewall_id("999999999") is True
 
-def test_load_config_file_not_found(monkeypatch):
-    # Correctly reference CONFIG_FILE_PATH in the acc_fwu.firewall module
-    monkeypatch.setattr("acc_fwu.firewall.CONFIG_FILE_PATH", "/non/existent/path")
-    with pytest.raises(FileNotFoundError):
-        load_config()
+    def test_validate_firewall_id_invalid(self):
+        with pytest.raises(ValueError, match="Invalid firewall ID"):
+            validate_firewall_id("abc")
+        with pytest.raises(ValueError, match="Invalid firewall ID"):
+            validate_firewall_id("")
+        with pytest.raises(ValueError, match="Invalid firewall ID"):
+            validate_firewall_id("123abc")
+        with pytest.raises(ValueError, match="Invalid firewall ID"):
+            validate_firewall_id(None)
 
-def test_save_config(tmp_path, monkeypatch):
-    config_file = tmp_path / ".acc-fwu-config"
-    monkeypatch.setattr("acc_fwu.firewall.CONFIG_FILE_PATH", str(config_file))
+    def test_validate_label_valid(self):
+        assert validate_label("Test-Label") is True
+        assert validate_label("my_label") is True
+        assert validate_label("Label123") is True
+        assert validate_label("a") is True
 
-    save_config("12345", "Test-Label")
-    
-    saved_config = config_file.read_text()
-    assert "firewall_id = 12345" in saved_config
-    assert "label = Test-Label" in saved_config
+    def test_validate_label_invalid(self):
+        with pytest.raises(ValueError, match="Invalid label"):
+            validate_label("")
+        with pytest.raises(ValueError, match="Invalid label"):
+            validate_label("label with spaces")
+        with pytest.raises(ValueError, match="Invalid label"):
+            validate_label("a" * 33)  # Too long
+        with pytest.raises(ValueError, match="Invalid label"):
+            validate_label("label@special!")
 
-def test_get_api_token(monkeypatch, tmp_path):
-    # Mock content of the Linode CLI configuration file
-    linode_config = """
-    [DEFAULT]
-    default-user = test-user
+    def test_validate_ip_address_valid(self):
+        assert validate_ip_address("192.168.1.1") is True
+        assert validate_ip_address("10.0.0.1") is True
+        assert validate_ip_address("255.255.255.255") is True
+        assert validate_ip_address("0.0.0.0") is True
 
-    [test-user]
-    token = test-token
-    """
-    # Create a temporary configuration file
-    linode_cli_config_file = tmp_path / "linode-cli"
-    linode_cli_config_file.write_text(linode_config)
+    def test_validate_ip_address_invalid(self):
+        with pytest.raises(ValueError, match="Invalid IPv4 address"):
+            validate_ip_address("256.1.1.1")
+        with pytest.raises(ValueError, match="Invalid IPv4 address"):
+            validate_ip_address("1.2.3")
+        with pytest.raises(ValueError, match="Invalid IPv4 address"):
+            validate_ip_address("not.an.ip")
+        with pytest.raises(ValueError, match="Invalid IPv4 address"):
+            validate_ip_address("")
 
-    # Ensure LINODE_CLI_CONFIG_PATH is correctly patched to use the temp file
-    monkeypatch.setattr("acc_fwu.firewall.LINODE_CLI_CONFIG_PATH", str(linode_cli_config_file))
-    
-    # Call the function to get the API token
-    token = get_api_token()
-    
-    # Assert that the correct token was returned
-    assert token == "test-token"
 
-def test_get_api_token_file_not_found(monkeypatch):
-    # Ensure LINODE_CLI_CONFIG_PATH is pointing to a mock or non-existent path
-    monkeypatch.setattr("acc_fwu.firewall.LINODE_CLI_CONFIG_PATH", "/non/existent/path")
+class TestConfig:
+    """Tests for configuration management functions."""
 
-    # Call the function to get the API token
-    with pytest.raises(FileNotFoundError):
-        get_api_token()
+    def test_load_config(self, tmp_path, monkeypatch):
+        # Create a temporary config file with the expected content
+        config_file = tmp_path / ".acc-fwu-config"
+        config_file.write_text("[DEFAULT]\nfirewall_id = 12345\nlabel = Test-Label\n")
 
-def test_get_public_ip(monkeypatch):
-    mock_response = mock.Mock()
-    mock_response.json.return_value = {"ip": "123.456.789.000"}
-    monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        # Use monkeypatch to override CONFIG_FILE_PATH in the firewall module
+        monkeypatch.setattr("acc_fwu.firewall.CONFIG_FILE_PATH", str(config_file))
 
-    ip_address = get_public_ip()
-    assert ip_address == "123.456.789.000"
+        # Now run the function and check the output
+        firewall_id, label = load_config()
+        assert firewall_id == "12345"
+        assert label == "Test-Label"
 
-def test_remove_firewall_rule(monkeypatch):
-    mock_response = mock.Mock()
-    mock_response.json.return_value = {
-        "inbound": [
-            {"label": "Test-TCP", "protocol": "TCP"},
-            {"label": "Test-UDP", "protocol": "UDP"},
-        ]
-    }
-    monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
-    monkeypatch.setattr(requests, "put", mock.Mock())
+    def test_load_config_file_not_found(self, monkeypatch):
+        monkeypatch.setattr("acc_fwu.firewall.CONFIG_FILE_PATH", "/non/existent/path")
+        with pytest.raises(FileNotFoundError):
+            load_config()
 
-    mock_get_api_token = mock.Mock(return_value="test-token")
-    monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock_get_api_token)
+    def test_save_config(self, tmp_path, monkeypatch):
+        config_file = tmp_path / ".acc-fwu-config"
+        monkeypatch.setattr("acc_fwu.firewall.CONFIG_FILE_PATH", str(config_file))
 
-    remove_firewall_rule("12345", "Test")
+        save_config("12345", "Test-Label", quiet=True)
 
-    requests.put.assert_called_once()
-    call_args = requests.put.call_args[1]["json"]
-    assert len(call_args["inbound"]) == 0  # Rules should have been removed
+        saved_config = config_file.read_text()
+        assert "firewall_id = 12345" in saved_config
+        assert "label = Test-Label" in saved_config
 
-def test_update_firewall_rule(monkeypatch):
-    mock_get_ip = mock.Mock(return_value="123.456.789.000")
-    mock_response = mock.Mock()
-    mock_response.json.return_value = {
-        "inbound": []
-    }
-    monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock_get_ip)
-    monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
-    monkeypatch.setattr(requests, "put", mock.Mock())
+    def test_save_config_secure_permissions(self, tmp_path, monkeypatch):
+        """Test that config file is created with secure permissions (600)."""
+        config_file = tmp_path / ".acc-fwu-config"
+        monkeypatch.setattr("acc_fwu.firewall.CONFIG_FILE_PATH", str(config_file))
 
-    mock_get_api_token = mock.Mock(return_value="test-token")
-    monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock_get_api_token)
+        save_config("12345", "Test-Label", quiet=True)
 
-    update_firewall_rule("12345", "Test")
+        # Check file permissions are owner read/write only (0600)
+        file_stat = os.stat(config_file)
+        file_mode = stat.S_IMODE(file_stat.st_mode)
+        assert file_mode == stat.S_IRUSR | stat.S_IWUSR
 
-    requests.put.assert_called_once()
-    call_args = requests.put.call_args[1]["json"]
-    assert len(call_args["inbound"]) == 3  # Three protocols: TCP, UDP, ICMP
+    def test_save_config_validates_input(self, tmp_path, monkeypatch):
+        """Test that save_config validates firewall_id and label."""
+        config_file = tmp_path / ".acc-fwu-config"
+        monkeypatch.setattr("acc_fwu.firewall.CONFIG_FILE_PATH", str(config_file))
+
+        with pytest.raises(ValueError, match="Invalid firewall ID"):
+            save_config("invalid-id", "Test-Label")
+
+        with pytest.raises(ValueError, match="Invalid label"):
+            save_config("12345", "invalid label!")
+
+
+class TestApiToken:
+    """Tests for API token retrieval."""
+
+    def test_get_api_token(self, monkeypatch, tmp_path):
+        linode_config = """
+        [DEFAULT]
+        default-user = test-user
+
+        [test-user]
+        token = test-token
+        """
+        linode_cli_config_file = tmp_path / "linode-cli"
+        linode_cli_config_file.write_text(linode_config)
+
+        monkeypatch.setattr("acc_fwu.firewall.LINODE_CLI_CONFIG_PATH", str(linode_cli_config_file))
+
+        token = get_api_token()
+        assert token == "test-token"
+
+    def test_get_api_token_file_not_found(self, monkeypatch):
+        monkeypatch.setattr("acc_fwu.firewall.LINODE_CLI_CONFIG_PATH", "/non/existent/path")
+        with pytest.raises(FileNotFoundError):
+            get_api_token()
+
+
+class TestPublicIp:
+    """Tests for public IP retrieval."""
+
+    def test_get_public_ip(self, monkeypatch):
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {"ip": "192.168.1.100"}
+        mock_response.raise_for_status = mock.Mock()
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+
+        ip_address = get_public_ip()
+        assert ip_address == "192.168.1.100"
+
+    def test_get_public_ip_validates_response(self, monkeypatch):
+        """Test that invalid IP from service raises ValueError."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {"ip": "invalid"}
+        mock_response.raise_for_status = mock.Mock()
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+
+        with pytest.raises(ValueError, match="Invalid IPv4 address"):
+            get_public_ip()
+
+
+class TestFirewallOperations:
+    """Tests for firewall rule operations."""
+
+    def test_remove_firewall_rule(self, monkeypatch):
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [
+                {"label": "Test-TCP", "protocol": "TCP"},
+                {"label": "Test-UDP", "protocol": "UDP"},
+            ]
+        }
+        mock_response.raise_for_status = mock.Mock()
+        mock_put_response = mock.Mock()
+        mock_put_response.status_code = 200
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock(return_value=mock_put_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        remove_firewall_rule("12345", "Test", quiet=True)
+
+        requests.put.assert_called_once()
+        call_args = requests.put.call_args[1]["json"]
+        assert len(call_args["inbound"]) == 0
+
+    def test_remove_firewall_rule_dry_run(self, monkeypatch, capsys):
+        """Test that dry_run shows what would be done without making changes."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [
+                {"label": "Test-TCP", "protocol": "TCP"},
+            ]
+        }
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock())
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        remove_firewall_rule("12345", "Test", dry_run=True)
+
+        # PUT should not be called in dry_run mode
+        requests.put.assert_not_called()
+        captured = capsys.readouterr()
+        assert "[DRY RUN]" in captured.out
+
+    def test_update_firewall_rule(self, monkeypatch):
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {"inbound": []}
+        mock_response.raise_for_status = mock.Mock()
+        mock_put_response = mock.Mock()
+        mock_put_response.status_code = 200
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock(return_value=mock_put_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", quiet=True)
+
+        requests.put.assert_called_once()
+        call_args = requests.put.call_args[1]["json"]
+        assert len(call_args["inbound"]) == 3  # TCP, UDP, ICMP
+
+    def test_update_firewall_rule_dry_run(self, monkeypatch, capsys):
+        """Test that dry_run shows what would be done without making changes."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {"inbound": []}
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock())
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", dry_run=True)
+
+        # PUT should not be called in dry_run mode
+        requests.put.assert_not_called()
+        captured = capsys.readouterr()
+        assert "[DRY RUN]" in captured.out
+
+    def test_update_firewall_rule_validates_input(self, monkeypatch):
+        """Test that update_firewall_rule validates inputs before API calls."""
+        with pytest.raises(ValueError, match="Invalid firewall ID"):
+            update_firewall_rule("invalid", "Test")
+
+        with pytest.raises(ValueError, match="Invalid label"):
+            update_firewall_rule("12345", "invalid label!")
+
+    def test_remove_firewall_rule_validates_input(self, monkeypatch):
+        """Test that remove_firewall_rule validates inputs before API calls."""
+        with pytest.raises(ValueError, match="Invalid firewall ID"):
+            remove_firewall_rule("invalid", "Test")
+
+        with pytest.raises(ValueError, match="Invalid label"):
+            remove_firewall_rule("12345", "invalid label!")
