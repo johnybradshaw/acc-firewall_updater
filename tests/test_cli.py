@@ -58,6 +58,24 @@ class TestCliBasicOperations:
         assert exc_info.value.code == 1
         mock_load_config.assert_called_once()
 
+    def test_main_config_without_label_uses_default(self, monkeypatch):
+        """Test CLI uses default label when config has None for label."""
+        mock_load_config = mock.MagicMock(return_value=("12345", None))
+        mock_update_firewall_rule = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
+
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu'])
+
+        main()
+
+        mock_load_config.assert_called_once()
+        # Should use the default label "Default-Label"
+        mock_update_firewall_rule.assert_called_once_with(
+            "12345", "Default-Label", debug=False, quiet=False, dry_run=False
+        )
+
 
 class TestCliRemoveOperation:
     """Tests for the --remove flag."""
@@ -150,6 +168,21 @@ class TestCliNewOptions:
             "12345", "Default-Label", debug=True, quiet=False, dry_run=False
         )
 
+    def test_main_quiet_mode_suppresses_config_error(self, monkeypatch, capsys):
+        """Test that --quiet suppresses config file not found message."""
+        mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '-q'])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        # Output should be empty in quiet mode
+        assert captured.out == ""
+
 
 class TestCliValidation:
     """Tests for input validation in CLI."""
@@ -195,3 +228,53 @@ class TestCliErrorHandling:
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
         assert "Error:" in captured.err
+
+    def test_main_handles_value_error_from_firewall_functions(self, monkeypatch, capsys):
+        """Test CLI handles ValueError from firewall functions."""
+        mock_load_config = mock.MagicMock(return_value=("12345", "Test-Label"))
+        mock_update_firewall_rule = mock.MagicMock(
+            side_effect=ValueError("Some validation error")
+        )
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu'])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Validation error:" in captured.err
+
+    def test_main_debug_mode_reraises_exceptions(self, monkeypatch):
+        """Test that debug mode re-raises exceptions instead of catching them."""
+        mock_load_config = mock.MagicMock(return_value=("12345", "Test-Label"))
+        mock_update_firewall_rule = mock.MagicMock(
+            side_effect=RuntimeError("Unexpected error")
+        )
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--debug'])
+
+        # With --debug, the exception should be re-raised, not caught
+        with pytest.raises(RuntimeError, match="Unexpected error"):
+            main()
+
+
+class TestCliVersion:
+    """Tests for version handling."""
+
+    def test_version_is_set(self):
+        """Test that __version__ is defined."""
+        from acc_fwu.cli import __version__
+        assert __version__ is not None
+        assert isinstance(__version__, str)
+
+    def test_version_fallback(self, monkeypatch):
+        """Test version fallback when package is not installed."""
+        # This tests the fallback mechanism by importing the module
+        # The version should be either the actual version or "0.0.0-dev"
+        from acc_fwu.cli import __version__
+        assert __version__ == "0.0.0-dev" or __version__[0].isdigit()

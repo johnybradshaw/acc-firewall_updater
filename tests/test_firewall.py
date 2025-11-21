@@ -77,6 +77,17 @@ class TestConfig:
         assert firewall_id == "12345"
         assert label == "Test-Label"
 
+    def test_load_config_without_label(self, tmp_path, monkeypatch):
+        """Test loading config when label is missing (returns None)."""
+        config_file = tmp_path / ".acc-fwu-config"
+        config_file.write_text("[DEFAULT]\nfirewall_id = 12345\n")
+
+        monkeypatch.setattr("acc_fwu.firewall.CONFIG_FILE_PATH", str(config_file))
+
+        firewall_id, label = load_config()
+        assert firewall_id == "12345"
+        assert label is None
+
     def test_load_config_file_not_found(self, monkeypatch):
         monkeypatch.setattr("acc_fwu.firewall.CONFIG_FILE_PATH", "/non/existent/path")
         with pytest.raises(FileNotFoundError):
@@ -91,6 +102,16 @@ class TestConfig:
         saved_config = config_file.read_text()
         assert "firewall_id = 12345" in saved_config
         assert "label = Test-Label" in saved_config
+
+    def test_save_config_prints_message_when_not_quiet(self, tmp_path, monkeypatch, capsys):
+        """Test that save_config prints message when quiet=False."""
+        config_file = tmp_path / ".acc-fwu-config"
+        monkeypatch.setattr("acc_fwu.firewall.CONFIG_FILE_PATH", str(config_file))
+
+        save_config("12345", "Test-Label", quiet=False)
+
+        captured = capsys.readouterr()
+        assert "Configuration saved to" in captured.out
 
     def test_save_config_secure_permissions(self, tmp_path, monkeypatch):
         """Test that config file is created with secure permissions (600)."""
@@ -140,6 +161,39 @@ class TestApiToken:
         with pytest.raises(FileNotFoundError):
             get_api_token()
 
+    def test_get_api_token_no_default_user(self, monkeypatch, tmp_path):
+        """Test that missing default-user raises ValueError."""
+        linode_config = """
+        [DEFAULT]
+
+        [some-user]
+        token = test-token
+        """
+        linode_cli_config_file = tmp_path / "linode-cli"
+        linode_cli_config_file.write_text(linode_config)
+
+        monkeypatch.setattr("acc_fwu.firewall.LINODE_CLI_CONFIG_PATH", str(linode_cli_config_file))
+
+        with pytest.raises(ValueError, match="No default user"):
+            get_api_token()
+
+    def test_get_api_token_no_token(self, monkeypatch, tmp_path):
+        """Test that missing token raises ValueError."""
+        linode_config = """
+        [DEFAULT]
+        default-user = test-user
+
+        [test-user]
+        region = us-east
+        """
+        linode_cli_config_file = tmp_path / "linode-cli"
+        linode_cli_config_file.write_text(linode_config)
+
+        monkeypatch.setattr("acc_fwu.firewall.LINODE_CLI_CONFIG_PATH", str(linode_cli_config_file))
+
+        with pytest.raises(ValueError, match="No API token"):
+            get_api_token()
+
 
 class TestPublicIp:
     """Tests for public IP retrieval."""
@@ -164,8 +218,8 @@ class TestPublicIp:
             get_public_ip()
 
 
-class TestFirewallOperations:
-    """Tests for firewall rule operations."""
+class TestRemoveFirewallRule:
+    """Tests for remove_firewall_rule function."""
 
     def test_remove_firewall_rule(self, monkeypatch):
         mock_response = mock.Mock()
@@ -189,6 +243,26 @@ class TestFirewallOperations:
         call_args = requests.put.call_args[1]["json"]
         assert len(call_args["inbound"]) == 0
 
+    def test_remove_firewall_rule_prints_success(self, monkeypatch, capsys):
+        """Test that success message is printed when quiet=False."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [{"label": "Test-TCP", "protocol": "TCP"}]
+        }
+        mock_response.raise_for_status = mock.Mock()
+        mock_put_response = mock.Mock()
+        mock_put_response.status_code = 200
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock(return_value=mock_put_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        remove_firewall_rule("12345", "Test", quiet=False)
+
+        captured = capsys.readouterr()
+        assert "Removed" in captured.out
+        assert "firewall rule" in captured.out
+
     def test_remove_firewall_rule_dry_run(self, monkeypatch, capsys):
         """Test that dry_run shows what would be done without making changes."""
         mock_response = mock.Mock()
@@ -210,7 +284,103 @@ class TestFirewallOperations:
         captured = capsys.readouterr()
         assert "[DRY RUN]" in captured.out
 
-    def test_update_firewall_rule(self, monkeypatch):
+    def test_remove_firewall_rule_no_matching_rules(self, monkeypatch, capsys):
+        """Test when no rules match the label."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [{"label": "Other-TCP", "protocol": "TCP"}]
+        }
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock())
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        remove_firewall_rule("12345", "Test", quiet=False)
+
+        # PUT should not be called when no rules match
+        requests.put.assert_not_called()
+        captured = capsys.readouterr()
+        assert "No rules found" in captured.out
+
+    def test_remove_firewall_rule_no_matching_rules_quiet(self, monkeypatch, capsys):
+        """Test quiet mode when no rules match."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [{"label": "Other-TCP", "protocol": "TCP"}]
+        }
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock())
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        remove_firewall_rule("12345", "Test", quiet=True)
+
+        # No output when quiet
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_remove_firewall_rule_with_debug(self, monkeypatch, capsys):
+        """Test debug mode prints additional information."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [{"label": "Test-TCP", "protocol": "TCP"}]
+        }
+        mock_response.raise_for_status = mock.Mock()
+        mock_put_response = mock.Mock()
+        mock_put_response.status_code = 200
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock(return_value=mock_put_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        remove_firewall_rule("12345", "Test", debug=True, quiet=True)
+
+        captured = capsys.readouterr()
+        assert "Existing rules data before removal" in captured.out
+        assert "Remaining rules data after removal" in captured.out
+
+    def test_remove_firewall_rule_api_error_with_debug(self, monkeypatch, capsys):
+        """Test debug output when API returns error."""
+        mock_get_response = mock.Mock()
+        mock_get_response.json.return_value = {
+            "inbound": [{"label": "Test-TCP", "protocol": "TCP"}]
+        }
+        mock_get_response.raise_for_status = mock.Mock()
+
+        mock_put_response = mock.Mock()
+        mock_put_response.status_code = 400
+        mock_put_response.content = b'{"errors": [{"reason": "Bad request"}]}'
+        mock_put_response.raise_for_status = mock.Mock(
+            side_effect=requests.exceptions.HTTPError("400 Bad Request")
+        )
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_get_response))
+        monkeypatch.setattr(requests, "put", mock.Mock(return_value=mock_put_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        with pytest.raises(requests.exceptions.HTTPError):
+            remove_firewall_rule("12345", "Test", debug=True)
+
+        captured = capsys.readouterr()
+        assert "Response status code: 400" in captured.out
+        assert "Response content:" in captured.out
+
+    def test_remove_firewall_rule_validates_input(self, monkeypatch):
+        """Test that remove_firewall_rule validates inputs before API calls."""
+        with pytest.raises(ValueError, match="Invalid firewall ID"):
+            remove_firewall_rule("invalid", "Test")
+
+        with pytest.raises(ValueError, match="Invalid label"):
+            remove_firewall_rule("12345", "invalid label!")
+
+
+class TestUpdateFirewallRule:
+    """Tests for update_firewall_rule function."""
+
+    def test_update_firewall_rule_creates_new_rules(self, monkeypatch):
+        """Test creating new rules when none exist."""
         mock_response = mock.Mock()
         mock_response.json.return_value = {"inbound": []}
         mock_response.raise_for_status = mock.Mock()
@@ -227,6 +397,53 @@ class TestFirewallOperations:
         requests.put.assert_called_once()
         call_args = requests.put.call_args[1]["json"]
         assert len(call_args["inbound"]) == 3  # TCP, UDP, ICMP
+
+    def test_update_firewall_rule_updates_existing_rules(self, monkeypatch, capsys):
+        """Test updating existing rules instead of creating new ones."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [
+                {"label": "Test-TCP", "protocol": "TCP", "addresses": {"ipv4": ["10.0.0.1/32"]}},
+                {"label": "Test-UDP", "protocol": "UDP", "addresses": {"ipv4": ["10.0.0.1/32"]}},
+                {"label": "Test-ICMP", "protocol": "ICMP", "addresses": {"ipv4": ["10.0.0.1/32"]}},
+            ]
+        }
+        mock_response.raise_for_status = mock.Mock()
+        mock_put_response = mock.Mock()
+        mock_put_response.status_code = 200
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock(return_value=mock_put_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", quiet=True)
+
+        requests.put.assert_called_once()
+        call_args = requests.put.call_args[1]["json"]
+        # Should still have 3 rules, but with updated IP
+        assert len(call_args["inbound"]) == 3
+        for rule in call_args["inbound"]:
+            assert rule["addresses"]["ipv4"] == ["192.168.1.100/32"]
+
+    def test_update_firewall_rule_prints_success(self, monkeypatch, capsys):
+        """Test that success message is printed when quiet=False."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {"inbound": []}
+        mock_response.raise_for_status = mock.Mock()
+        mock_put_response = mock.Mock()
+        mock_put_response.status_code = 200
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock(return_value=mock_put_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", quiet=False)
+
+        captured = capsys.readouterr()
+        assert "Created/updated firewall rules" in captured.out
+        assert "192.168.1.100/32" in captured.out
 
     def test_update_firewall_rule_dry_run(self, monkeypatch, capsys):
         """Test that dry_run shows what would be done without making changes."""
@@ -246,6 +463,71 @@ class TestFirewallOperations:
         captured = capsys.readouterr()
         assert "[DRY RUN]" in captured.out
 
+    def test_update_firewall_rule_dry_run_with_existing_rules(self, monkeypatch, capsys):
+        """Test dry_run correctly reports updates vs creates."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [
+                {"label": "Test-TCP", "protocol": "TCP", "addresses": {"ipv4": ["10.0.0.1/32"]}},
+            ]
+        }
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock())
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", dry_run=True)
+
+        captured = capsys.readouterr()
+        assert "[DRY RUN]" in captured.out
+        assert "update 1" in captured.out
+        assert "create 2" in captured.out
+
+    def test_update_firewall_rule_with_debug(self, monkeypatch, capsys):
+        """Test debug mode prints additional information."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {"inbound": []}
+        mock_response.raise_for_status = mock.Mock()
+        mock_put_response = mock.Mock()
+        mock_put_response.status_code = 200
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock(return_value=mock_put_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", debug=True, quiet=True)
+
+        captured = capsys.readouterr()
+        assert "Existing rules data:" in captured.out
+
+    def test_update_firewall_rule_api_error_with_debug(self, monkeypatch, capsys):
+        """Test debug output when API returns error."""
+        mock_get_response = mock.Mock()
+        mock_get_response.json.return_value = {"inbound": []}
+        mock_get_response.raise_for_status = mock.Mock()
+
+        mock_put_response = mock.Mock()
+        mock_put_response.status_code = 400
+        mock_put_response.content = b'{"errors": [{"reason": "Bad request"}]}'
+        mock_put_response.raise_for_status = mock.Mock(
+            side_effect=requests.exceptions.HTTPError("400 Bad Request")
+        )
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_get_response))
+        monkeypatch.setattr(requests, "put", mock.Mock(return_value=mock_put_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        with pytest.raises(requests.exceptions.HTTPError):
+            update_firewall_rule("12345", "Test", debug=True)
+
+        captured = capsys.readouterr()
+        assert "Response status code: 400" in captured.out
+        assert "Response content:" in captured.out
+
     def test_update_firewall_rule_validates_input(self, monkeypatch):
         """Test that update_firewall_rule validates inputs before API calls."""
         with pytest.raises(ValueError, match="Invalid firewall ID"):
@@ -253,11 +535,3 @@ class TestFirewallOperations:
 
         with pytest.raises(ValueError, match="Invalid label"):
             update_firewall_rule("12345", "invalid label!")
-
-    def test_remove_firewall_rule_validates_input(self, monkeypatch):
-        """Test that remove_firewall_rule validates inputs before API calls."""
-        with pytest.raises(ValueError, match="Invalid firewall ID"):
-            remove_firewall_rule("invalid", "Test")
-
-        with pytest.raises(ValueError, match="Invalid label"):
-            remove_firewall_rule("12345", "invalid label!")
