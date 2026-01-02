@@ -12,6 +12,8 @@ This file provides guidance for AI assistants working with the `acc-fwu` (Akamai
 - Persists configuration for repeated use
 - Supports dry-run, quiet, and debug modes
 - Input validation for security
+- Interactive firewall selection (lists available firewalls)
+- Add mode for multiple IP addresses (travel use case)
 
 ## Codebase Structure
 
@@ -63,6 +65,12 @@ All inputs are validated before use:
 - `validate_label(label)` - Alphanumeric, underscores, hyphens, max 32 chars
 - `validate_ip_address(ip)` - Valid IPv4 format
 
+### Core Functions (firewall.py)
+- `list_firewalls()` - Lists all firewalls from Linode API
+- `select_firewall(quiet)` - Interactive firewall selection prompt
+- `update_firewall_rule(firewall_id, label, debug, quiet, dry_run, add_ip)` - Creates/updates rules
+- `remove_firewall_rule(firewall_id, label, debug, quiet, dry_run)` - Removes rules
+
 ### Important Constants (firewall.py:8-16)
 ```python
 REQUESTS_TIMEOUT = 5
@@ -84,7 +92,12 @@ Tests are organized by class with descriptive names:
 - `TestApiToken` - Linode CLI token retrieval
 - `TestPublicIp` - IP detection
 - `TestRemoveFirewallRule` / `TestUpdateFirewallRule` - Core functionality
-- `TestCli*` - CLI-specific tests
+- `TestListFirewalls` - Firewall listing functionality
+- `TestSelectFirewall` - Interactive firewall selection
+- `TestCliBasicOperations` - Basic CLI operations
+- `TestCliAddFlag` - Add mode (--add flag) tests
+- `TestCliListFlag` - List firewalls (--list flag) tests
+- `TestCliInteractiveSelection` - Interactive selection tests
 
 ### Mocking Strategy
 All external dependencies are mocked:
@@ -177,9 +190,11 @@ This is expected for untagged commits. Version comes from git tags via setuptool
 
 The tool uses the Linode API v4:
 - Base URL: `https://api.linode.com/v4/`
-- Endpoint: `/networking/firewalls/{firewall_id}/rules`
+- Endpoints:
+  - `/networking/firewalls` - List all firewalls (GET)
+  - `/networking/firewalls/{firewall_id}/rules` - Manage rules (GET/PUT)
 - Authentication: Bearer token from Linode CLI config
-- Methods: GET (fetch rules), PUT (update rules)
+- Methods: GET (fetch firewalls/rules), PUT (update rules)
 
 ## File Locations
 

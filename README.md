@@ -19,6 +19,8 @@ A tool to automatically update the [Akamai Connected Cloud (ACC) / Linode](https
 - Debug mode for troubleshooting
 - Input validation for security
 - Secure configuration file storage (owner-only permissions)
+- **Interactive firewall selection** - List and choose from available firewalls
+- **Add mode** - Accumulate multiple IP addresses (ideal for traveling)
 
 ## Prerequisites
 
@@ -81,7 +83,7 @@ This will:
 ### Command-Line Options
 
 ```
-usage: acc-fwu [-h] [--firewall_id FIREWALL_ID] [--label LABEL] [-d] [-r] [-q] [--dry-run] [-v]
+usage: acc-fwu [-h] [--firewall_id FIREWALL_ID] [--label LABEL] [-d] [-r] [-a] [-l] [-q] [--dry-run] [-v]
 
 Create, update, or remove Akamai Connected Cloud (Linode) firewall rules with your current IP address.
 
@@ -92,6 +94,8 @@ options:
   --label LABEL         Label for the firewall rule (alphanumeric, underscores, hyphens, max 32 chars).
   -d, --debug           Enable debug mode to show existing rules data.
   -r, --remove          Remove the specified rules from the firewall.
+  -a, --add             Add IP to existing rules instead of replacing (useful for multiple locations).
+  -l, --list            List available firewalls and exit.
   -q, --quiet           Suppress output messages (useful for cron/scripting).
   --dry-run             Show what would be done without making any changes.
   -v, --version         show program's version number and exit
@@ -131,6 +135,50 @@ acc-fwu --debug
 acc-fwu --version
 ```
 
+**List available firewalls:**
+
+```bash
+acc-fwu --list
+```
+
+**Add IP without replacing existing ones (great for traveling):**
+
+```bash
+acc-fwu --add
+```
+
+**First-time setup with interactive firewall selection:**
+
+```bash
+# If no firewall_id is provided and no config exists,
+# you'll be prompted to select from available firewalls
+acc-fwu
+```
+
+### Multi-Location Usage (Add Mode)
+
+If you frequently travel and need to access your servers from multiple locations, use the `--add` flag:
+
+```bash
+# From home
+acc-fwu --add
+
+# Later, from a coffee shop
+acc-fwu --add
+
+# Later, from the airport
+acc-fwu --add
+```
+
+Each location's IP address will be added to your firewall rules, allowing access from all locations. Without `--add`, your IP would be replaced each time.
+
+To start fresh and remove all accumulated IPs:
+
+```bash
+acc-fwu --remove
+acc-fwu  # Creates new rules with only your current IP
+```
+
 ### Cron Job Example
 
 To automatically update your firewall rules every hour:
@@ -168,6 +216,16 @@ See [RELEASE.md](RELEASE.md) for information on creating releases.
 This project is licensed under the GNU General Public License v3 (GPLv3) - see the [LICENSE](LICENSE) file for details.
 
 ## Summary of Changes
+
+### 2026-01-02 - v0.2.0
+
+- **New Features**:
+  - Added `--list` / `-l` flag to list available firewalls from your Linode account
+  - Added `--add` / `-a` flag to append IP addresses to existing rules instead of replacing (useful when traveling between multiple locations)
+  - Added interactive firewall selection when no firewall_id is configured
+- **Improvements**:
+  - When running without a config file, the tool now prompts you to select from available firewalls
+  - Better handling of multiple IP addresses per rule
 
 ### 2025-11-21 - v0.1.5
 

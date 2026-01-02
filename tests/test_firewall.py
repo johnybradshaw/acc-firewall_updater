@@ -5,7 +5,8 @@ import requests
 from acc_fwu.firewall import (
     load_config, save_config, get_api_token, get_public_ip,
     remove_firewall_rule, update_firewall_rule, CONFIG_FILE_PATH, LINODE_CLI_CONFIG_PATH,
-    validate_firewall_id, validate_label, validate_ip_address
+    validate_firewall_id, validate_label, validate_ip_address,
+    list_firewalls, select_firewall
 )
 import os
 
@@ -535,3 +536,262 @@ class TestUpdateFirewallRule:
 
         with pytest.raises(ValueError, match="Invalid label"):
             update_firewall_rule("12345", "invalid label!")
+
+    def test_update_firewall_rule_add_ip_mode(self, monkeypatch):
+        """Test add_ip mode appends IP instead of replacing."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [
+                {"label": "Test-TCP", "protocol": "TCP", "addresses": {"ipv4": ["10.0.0.1/32"]}},
+                {"label": "Test-UDP", "protocol": "UDP", "addresses": {"ipv4": ["10.0.0.1/32"]}},
+                {"label": "Test-ICMP", "protocol": "ICMP", "addresses": {"ipv4": ["10.0.0.1/32"]}},
+            ]
+        }
+        mock_response.raise_for_status = mock.Mock()
+        mock_put_response = mock.Mock()
+        mock_put_response.status_code = 200
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock(return_value=mock_put_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", quiet=True, add_ip=True)
+
+        requests.put.assert_called_once()
+        call_args = requests.put.call_args[1]["json"]
+        # Should have both IPs in each rule
+        for rule in call_args["inbound"]:
+            if rule["label"].startswith("Test-"):
+                assert "10.0.0.1/32" in rule["addresses"]["ipv4"]
+                assert "192.168.1.100/32" in rule["addresses"]["ipv4"]
+
+    def test_update_firewall_rule_add_ip_already_exists(self, monkeypatch, capsys):
+        """Test add_ip mode when IP already exists."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [
+                {"label": "Test-TCP", "protocol": "TCP", "addresses": {"ipv4": ["192.168.1.100/32"]}},
+                {"label": "Test-UDP", "protocol": "UDP", "addresses": {"ipv4": ["192.168.1.100/32"]}},
+                {"label": "Test-ICMP", "protocol": "ICMP", "addresses": {"ipv4": ["192.168.1.100/32"]}},
+            ]
+        }
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock())
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", quiet=False, add_ip=True)
+
+        # PUT should not be called when IP already exists
+        requests.put.assert_not_called()
+        captured = capsys.readouterr()
+        assert "already exists" in captured.out
+
+    def test_update_firewall_rule_add_ip_dry_run(self, monkeypatch, capsys):
+        """Test add_ip mode with dry_run."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [
+                {"label": "Test-TCP", "protocol": "TCP", "addresses": {"ipv4": ["10.0.0.1/32"]}},
+            ]
+        }
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock())
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", dry_run=True, add_ip=True)
+
+        requests.put.assert_not_called()
+        captured = capsys.readouterr()
+        assert "[DRY RUN]" in captured.out
+        assert "add to" in captured.out
+
+    def test_update_firewall_rule_add_ip_creates_new_rules(self, monkeypatch):
+        """Test add_ip mode creates new rules if they don't exist."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {"inbound": []}
+        mock_response.raise_for_status = mock.Mock()
+        mock_put_response = mock.Mock()
+        mock_put_response.status_code = 200
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock(return_value=mock_put_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", quiet=True, add_ip=True)
+
+        requests.put.assert_called_once()
+        call_args = requests.put.call_args[1]["json"]
+        assert len(call_args["inbound"]) == 3  # TCP, UDP, ICMP
+
+
+class TestListFirewalls:
+    """Tests for list_firewalls function."""
+
+    def test_list_firewalls_success(self, monkeypatch):
+        """Test successful listing of firewalls."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "data": [
+                {"id": 12345, "label": "my-firewall", "status": "enabled"},
+                {"id": 67890, "label": "another-firewall", "status": "disabled"},
+            ]
+        }
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        firewalls = list_firewalls()
+
+        assert len(firewalls) == 2
+        assert firewalls[0]["id"] == 12345
+        assert firewalls[0]["label"] == "my-firewall"
+        assert firewalls[0]["status"] == "enabled"
+        assert firewalls[1]["id"] == 67890
+
+    def test_list_firewalls_empty(self, monkeypatch):
+        """Test listing when no firewalls exist."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {"data": []}
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        firewalls = list_firewalls()
+
+        assert len(firewalls) == 0
+
+    def test_list_firewalls_api_error(self, monkeypatch):
+        """Test handling of API errors."""
+        mock_response = mock.Mock()
+        mock_response.raise_for_status = mock.Mock(
+            side_effect=requests.exceptions.HTTPError("401 Unauthorized")
+        )
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        with pytest.raises(requests.exceptions.HTTPError):
+            list_firewalls()
+
+    def test_list_firewalls_missing_label(self, monkeypatch):
+        """Test handling of firewalls with missing labels."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "data": [
+                {"id": 12345, "status": "enabled"},  # No label
+            ]
+        }
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        firewalls = list_firewalls()
+
+        assert len(firewalls) == 1
+        assert firewalls[0]["label"] == ""
+
+
+class TestSelectFirewall:
+    """Tests for select_firewall function."""
+
+    def test_select_firewall_success(self, monkeypatch, capsys):
+        """Test successful firewall selection."""
+        mock_list = mock.Mock(return_value=[
+            {"id": 12345, "label": "my-firewall", "status": "enabled"},
+            {"id": 67890, "label": "another-firewall", "status": "disabled"},
+        ])
+        monkeypatch.setattr("acc_fwu.firewall.list_firewalls", mock_list)
+        monkeypatch.setattr("builtins.input", mock.Mock(return_value="1"))
+
+        firewall_id = select_firewall()
+
+        assert firewall_id == "12345"
+        captured = capsys.readouterr()
+        assert "Available firewalls" in captured.out
+        assert "my-firewall" in captured.out
+
+    def test_select_firewall_second_option(self, monkeypatch):
+        """Test selecting second firewall."""
+        mock_list = mock.Mock(return_value=[
+            {"id": 12345, "label": "my-firewall", "status": "enabled"},
+            {"id": 67890, "label": "another-firewall", "status": "disabled"},
+        ])
+        monkeypatch.setattr("acc_fwu.firewall.list_firewalls", mock_list)
+        monkeypatch.setattr("builtins.input", mock.Mock(return_value="2"))
+
+        firewall_id = select_firewall(quiet=True)
+
+        assert firewall_id == "67890"
+
+    def test_select_firewall_no_firewalls(self, monkeypatch):
+        """Test error when no firewalls available."""
+        mock_list = mock.Mock(return_value=[])
+        monkeypatch.setattr("acc_fwu.firewall.list_firewalls", mock_list)
+
+        with pytest.raises(ValueError, match="No firewalls found"):
+            select_firewall()
+
+    def test_select_firewall_invalid_input_retry(self, monkeypatch, capsys):
+        """Test retry on invalid input."""
+        mock_list = mock.Mock(return_value=[
+            {"id": 12345, "label": "my-firewall", "status": "enabled"},
+        ])
+        monkeypatch.setattr("acc_fwu.firewall.list_firewalls", mock_list)
+        # First invalid input, then valid
+        inputs = iter(["abc", "1"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        firewall_id = select_firewall(quiet=True)
+
+        assert firewall_id == "12345"
+        captured = capsys.readouterr()
+        assert "valid number" in captured.out
+
+    def test_select_firewall_out_of_range_retry(self, monkeypatch, capsys):
+        """Test retry on out of range input."""
+        mock_list = mock.Mock(return_value=[
+            {"id": 12345, "label": "my-firewall", "status": "enabled"},
+        ])
+        monkeypatch.setattr("acc_fwu.firewall.list_firewalls", mock_list)
+        # First out of range, then valid
+        inputs = iter(["5", "1"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        firewall_id = select_firewall(quiet=True)
+
+        assert firewall_id == "12345"
+        captured = capsys.readouterr()
+        assert "between 1 and" in captured.out
+
+    def test_select_firewall_keyboard_interrupt(self, monkeypatch):
+        """Test handling of keyboard interrupt."""
+        mock_list = mock.Mock(return_value=[
+            {"id": 12345, "label": "my-firewall", "status": "enabled"},
+        ])
+        monkeypatch.setattr("acc_fwu.firewall.list_firewalls", mock_list)
+        monkeypatch.setattr("builtins.input", mock.Mock(side_effect=KeyboardInterrupt))
+
+        with pytest.raises(ValueError, match="cancelled"):
+            select_firewall()
+
+    def test_select_firewall_eof(self, monkeypatch):
+        """Test handling of EOF (e.g., piped input ends)."""
+        mock_list = mock.Mock(return_value=[
+            {"id": 12345, "label": "my-firewall", "status": "enabled"},
+        ])
+        monkeypatch.setattr("acc_fwu.firewall.list_firewalls", mock_list)
+        monkeypatch.setattr("builtins.input", mock.Mock(side_effect=EOFError))
+
+        with pytest.raises(ValueError, match="cancelled"):
+            select_firewall()
