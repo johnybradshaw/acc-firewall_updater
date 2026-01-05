@@ -260,20 +260,26 @@ def select_firewall(quiet=False):
 
     Raises:
         FileNotFoundError: If Linode CLI configuration is not found.
-        ValueError: If no firewalls are available or selection is invalid.
+        ValueError: If no firewalls are available, selection is invalid,
+                    or quiet mode is enabled (interactive selection not possible).
         requests.RequestException: If the API request fails.
     """
+    if quiet:
+        raise ValueError(
+            "Cannot select firewall interactively in quiet mode. "
+            "Please provide --firewall_id or create a config file first."
+        )
+
     firewalls = list_firewalls()
 
     if not firewalls:
         raise ValueError("No firewalls found in your Linode account.")
 
-    if not quiet:
-        print("\nAvailable firewalls:")
-        print("-" * 50)
-        for i, fw in enumerate(firewalls, 1):
-            print(f"  {i}. [{fw['id']}] {fw['label']} ({fw['status']})")
-        print("-" * 50)
+    print("\nAvailable firewalls:")
+    print("-" * 50)
+    for i, fw in enumerate(firewalls, 1):
+        print(f"  {i}. [{fw['id']}] {fw['label']} ({fw['status']})")
+    print("-" * 50)
 
     while True:
         try:

@@ -721,7 +721,7 @@ class TestSelectFirewall:
         assert "Available firewalls" in captured.out
         assert "my-firewall" in captured.out
 
-    def test_select_firewall_second_option(self, monkeypatch):
+    def test_select_firewall_second_option(self, monkeypatch, capsys):
         """Test selecting second firewall."""
         mock_list = mock.Mock(return_value=[
             {"id": 12345, "label": "my-firewall", "status": "enabled"},
@@ -730,9 +730,11 @@ class TestSelectFirewall:
         monkeypatch.setattr("acc_fwu.firewall.list_firewalls", mock_list)
         monkeypatch.setattr("builtins.input", mock.Mock(return_value="2"))
 
-        firewall_id = select_firewall(quiet=True)
+        firewall_id = select_firewall()
 
         assert firewall_id == "67890"
+        captured = capsys.readouterr()
+        assert "another-firewall" in captured.out
 
     def test_select_firewall_no_firewalls(self, monkeypatch):
         """Test error when no firewalls available."""
@@ -752,7 +754,7 @@ class TestSelectFirewall:
         inputs = iter(["abc", "1"])
         monkeypatch.setattr("builtins.input", lambda _: next(inputs))
 
-        firewall_id = select_firewall(quiet=True)
+        firewall_id = select_firewall()
 
         assert firewall_id == "12345"
         captured = capsys.readouterr()
@@ -768,7 +770,7 @@ class TestSelectFirewall:
         inputs = iter(["5", "1"])
         monkeypatch.setattr("builtins.input", lambda _: next(inputs))
 
-        firewall_id = select_firewall(quiet=True)
+        firewall_id = select_firewall()
 
         assert firewall_id == "12345"
         captured = capsys.readouterr()
@@ -795,3 +797,8 @@ class TestSelectFirewall:
 
         with pytest.raises(ValueError, match="cancelled"):
             select_firewall()
+
+    def test_select_firewall_quiet_mode_error(self, monkeypatch):
+        """Test that quiet mode raises error (interactive selection not possible)."""
+        with pytest.raises(ValueError, match="Cannot select firewall interactively in quiet mode"):
+            select_firewall(quiet=True)

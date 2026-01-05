@@ -431,23 +431,21 @@ class TestCliInteractiveSelection:
 
         assert exc_info.value.code == 1
 
-    def test_main_interactive_selection_quiet_mode(self, monkeypatch, capsys):
-        """Test CLI interactive selection in quiet mode."""
+    def test_main_interactive_selection_quiet_mode_errors(self, monkeypatch, capsys):
+        """Test CLI in quiet mode with no config exits with error (can't do interactive selection)."""
         mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
-        mock_select_firewall = mock.MagicMock(return_value="12345")
-        mock_save_config = mock.MagicMock()
-        mock_update_firewall_rule = mock.MagicMock()
+        # Don't mock select_firewall - let it raise the real error for quiet mode
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
-        monkeypatch.setattr("acc_fwu.cli.select_firewall", mock_select_firewall)
-        monkeypatch.setattr("acc_fwu.cli.save_config", mock_save_config)
-        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
 
         monkeypatch.setattr(sys, 'argv', ['acc-fwu', '-q'])
 
-        main()
+        with pytest.raises(SystemExit) as exc_info:
+            main()
 
-        mock_select_firewall.assert_called_once_with(quiet=True)
+        assert exc_info.value.code == 1
         captured = capsys.readouterr()
         # Should not print "No configuration file found" in quiet mode
         assert "No configuration file found" not in captured.out
+        # Error message should be suppressed in quiet mode
+        assert captured.out == ""
