@@ -114,7 +114,7 @@ acc-fwu --firewall_id 123456 --label "My-IP" --dry-run
 **Run silently (for cron jobs):**
 
 ```bash
-acc-fwu --quiet
+acc-fwu --quiet  # Requires existing config file
 ```
 
 **Remove firewall rules:**
@@ -188,6 +188,8 @@ To automatically update your firewall rules every hour:
 0 * * * * /usr/local/bin/acc-fwu --quiet
 ```
 
+**Important**: Before using `--quiet` mode, you must have a valid configuration file (`~/.acc-fwu-config`) with your `firewall_id` and `label`. Interactive firewall selection is not available in quiet mode. Run `acc-fwu` interactively first to set up your configuration.
+
 ## Configuration File
 
 The `acc-fwu` tool saves the `firewall_id` and `label` in a configuration file located at `~/.acc-fwu-config`. This file is:
@@ -216,6 +218,12 @@ See [RELEASE.md](RELEASE.md) for information on creating releases.
 This project is licensed under the GNU General Public License v3 (GPLv3) - see the [LICENSE](LICENSE) file for details.
 
 ## Summary of Changes
+
+### 2026-01-05 - v0.2.1
+
+- **Bug Fixes**:
+  - Fixed `select_firewall()` hanging in quiet mode - now raises an error immediately with guidance to configure firewall_id first
+  - Quiet mode (`--quiet`) now properly fails fast in non-interactive environments (e.g., cron jobs) when no configuration exists
 
 ### 2026-01-02 - v0.2.0
 
