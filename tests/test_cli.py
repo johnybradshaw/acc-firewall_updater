@@ -25,7 +25,7 @@ class TestCliBasicOperations:
 
         mock_save_config.assert_called_once_with("12345", "Test-Label", quiet=False)
         mock_update_firewall_rule.assert_called_once_with(
-            "12345", "Test-Label", debug=False, quiet=False, dry_run=False
+            "12345", "Test-Label", debug=False, quiet=False, dry_run=False, add_ip=False
         )
 
     def test_main_without_firewall_id(self, monkeypatch):
@@ -42,7 +42,7 @@ class TestCliBasicOperations:
 
         mock_load_config.assert_called_once()
         mock_update_firewall_rule.assert_called_once_with(
-            "12345", "Loaded-Label", debug=False, quiet=False, dry_run=False
+            "12345", "Loaded-Label", debug=False, quiet=False, dry_run=False, add_ip=False
         )
 
     def test_main_without_config_file(self, monkeypatch):
@@ -73,7 +73,7 @@ class TestCliBasicOperations:
         mock_load_config.assert_called_once()
         # Should use the default label "Default-Label"
         mock_update_firewall_rule.assert_called_once_with(
-            "12345", "Default-Label", debug=False, quiet=False, dry_run=False
+            "12345", "Default-Label", debug=False, quiet=False, dry_run=False, add_ip=False
         )
 
 
@@ -123,7 +123,7 @@ class TestCliNewOptions:
 
         mock_save_config.assert_called_once_with("12345", "Test-Label", quiet=True)
         mock_update_firewall_rule.assert_called_once_with(
-            "12345", "Test-Label", debug=False, quiet=True, dry_run=False
+            "12345", "Test-Label", debug=False, quiet=True, dry_run=False, add_ip=False
         )
 
     def test_main_with_dry_run_flag(self, monkeypatch):
@@ -145,7 +145,7 @@ class TestCliNewOptions:
         # save_config should NOT be called in dry_run mode
         mock_save_config.assert_not_called()
         mock_update_firewall_rule.assert_called_once_with(
-            "12345", "Test-Label", debug=False, quiet=False, dry_run=True
+            "12345", "Test-Label", debug=False, quiet=False, dry_run=True, add_ip=False
         )
 
     def test_main_with_debug_flag(self, monkeypatch):
@@ -165,7 +165,7 @@ class TestCliNewOptions:
         main()
 
         mock_update_firewall_rule.assert_called_once_with(
-            "12345", "Default-Label", debug=True, quiet=False, dry_run=False
+            "12345", "Default-Label", debug=True, quiet=False, dry_run=False, add_ip=False
         )
 
     def test_main_quiet_mode_suppresses_config_error(self, monkeypatch, capsys):
@@ -278,3 +278,174 @@ class TestCliVersion:
         # The version should be either the actual version or "0.0.0-dev"
         from acc_fwu.cli import __version__
         assert __version__ == "0.0.0-dev" or __version__[0].isdigit()
+
+
+class TestCliAddFlag:
+    """Tests for the --add flag."""
+
+    def test_main_with_add_flag(self, monkeypatch):
+        """Test CLI with --add flag passes add_ip=True."""
+        mock_save_config = mock.MagicMock()
+        mock_update_firewall_rule = mock.MagicMock()
+        mock_validate_firewall_id = mock.MagicMock(return_value=True)
+        mock_validate_label = mock.MagicMock(return_value=True)
+
+        monkeypatch.setattr("acc_fwu.cli.save_config", mock_save_config)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
+        monkeypatch.setattr("acc_fwu.cli.validate_firewall_id", mock_validate_firewall_id)
+        monkeypatch.setattr("acc_fwu.cli.validate_label", mock_validate_label)
+
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--firewall_id', '12345', '--label', 'Test', '-a'])
+
+        main()
+
+        mock_update_firewall_rule.assert_called_once_with(
+            "12345", "Test", debug=False, quiet=False, dry_run=False, add_ip=True
+        )
+
+    def test_main_add_flag_with_config(self, monkeypatch):
+        """Test CLI with --add flag when using config file."""
+        mock_load_config = mock.MagicMock(return_value=("12345", "Config-Label"))
+        mock_update_firewall_rule = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
+
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--add'])
+
+        main()
+
+        mock_update_firewall_rule.assert_called_once_with(
+            "12345", "Config-Label", debug=False, quiet=False, dry_run=False, add_ip=True
+        )
+
+
+class TestCliListFlag:
+    """Tests for the --list flag."""
+
+    def test_main_with_list_flag(self, monkeypatch, capsys):
+        """Test CLI with --list flag shows firewalls."""
+        mock_list_firewalls = mock.MagicMock(return_value=[
+            {"id": 12345, "label": "my-firewall", "status": "enabled"},
+            {"id": 67890, "label": "another-fw", "status": "disabled"},
+        ])
+
+        monkeypatch.setattr("acc_fwu.cli.list_firewalls", mock_list_firewalls)
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--list'])
+
+        main()
+
+        mock_list_firewalls.assert_called_once()
+        captured = capsys.readouterr()
+        assert "Available firewalls" in captured.out
+        assert "12345" in captured.out
+        assert "my-firewall" in captured.out
+        assert "enabled" in captured.out
+
+    def test_main_with_list_flag_empty(self, monkeypatch, capsys):
+        """Test CLI with --list flag when no firewalls exist."""
+        mock_list_firewalls = mock.MagicMock(return_value=[])
+
+        monkeypatch.setattr("acc_fwu.cli.list_firewalls", mock_list_firewalls)
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--list'])
+
+        main()
+
+        captured = capsys.readouterr()
+        assert "No firewalls found" in captured.out
+
+    def test_main_with_list_flag_error(self, monkeypatch, capsys):
+        """Test CLI with --list flag handles errors."""
+        mock_list_firewalls = mock.MagicMock(side_effect=Exception("API Error"))
+
+        monkeypatch.setattr("acc_fwu.cli.list_firewalls", mock_list_firewalls)
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--list'])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Error listing firewalls" in captured.err
+
+
+class TestCliInteractiveSelection:
+    """Tests for interactive firewall selection."""
+
+    def test_main_interactive_selection_when_no_config(self, monkeypatch, capsys):
+        """Test CLI uses interactive selection when no config file exists."""
+        mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
+        mock_select_firewall = mock.MagicMock(return_value="12345")
+        mock_save_config = mock.MagicMock()
+        mock_update_firewall_rule = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+        monkeypatch.setattr("acc_fwu.cli.select_firewall", mock_select_firewall)
+        monkeypatch.setattr("acc_fwu.cli.save_config", mock_save_config)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
+
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu'])
+
+        main()
+
+        mock_select_firewall.assert_called_once()
+        mock_save_config.assert_called_once()
+        mock_update_firewall_rule.assert_called_once()
+        captured = capsys.readouterr()
+        assert "No configuration file found" in captured.out
+
+    def test_main_interactive_selection_dry_run(self, monkeypatch, capsys):
+        """Test CLI interactive selection with --dry-run doesn't save config."""
+        mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
+        mock_select_firewall = mock.MagicMock(return_value="12345")
+        mock_save_config = mock.MagicMock()
+        mock_update_firewall_rule = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+        monkeypatch.setattr("acc_fwu.cli.select_firewall", mock_select_firewall)
+        monkeypatch.setattr("acc_fwu.cli.save_config", mock_save_config)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
+
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--dry-run'])
+
+        main()
+
+        mock_select_firewall.assert_called_once()
+        mock_save_config.assert_not_called()
+        mock_update_firewall_rule.assert_called_once_with(
+            "12345", "Default-Label", debug=False, quiet=False, dry_run=True, add_ip=False
+        )
+
+    def test_main_interactive_selection_cancelled(self, monkeypatch, capsys):
+        """Test CLI handles cancelled interactive selection."""
+        mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
+        mock_select_firewall = mock.MagicMock(side_effect=ValueError("cancelled"))
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+        monkeypatch.setattr("acc_fwu.cli.select_firewall", mock_select_firewall)
+
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu'])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 1
+
+    def test_main_interactive_selection_quiet_mode_errors(self, monkeypatch, capsys):
+        """Test CLI in quiet mode with no config exits with error (can't do interactive selection)."""
+        mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
+        # Don't mock select_firewall - let it raise the real error for quiet mode
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '-q'])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        # Should not print "No configuration file found" in quiet mode
+        assert "No configuration file found" not in captured.out
+        # Error message should be suppressed in quiet mode
+        assert captured.out == ""

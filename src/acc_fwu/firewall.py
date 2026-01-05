@@ -70,6 +70,7 @@ def validate_ip_address(ip_address):
         raise ValueError(f"Invalid IPv4 address received: '{ip_address}'")
     return True
 
+
 def load_config():
     """
     Load the firewall ID and label from the configuration file.
@@ -104,6 +105,7 @@ def load_config():
             f"No configuration file found at {CONFIG_FILE_PATH}. "
             "Please run the script with --firewall_id and --label first."
         )
+
 
 def save_config(firewall_id, label, quiet=False):
     """
@@ -151,6 +153,7 @@ def save_config(firewall_id, label, quiet=False):
     if not quiet:
         print(f"Configuration saved to {CONFIG_FILE_PATH}")
 
+
 def get_api_token():
     """
     Load the API token from the Linode CLI configuration.
@@ -163,21 +166,22 @@ def get_api_token():
         str: The API token.
     """
     config = configparser.ConfigParser()
-    if not os.path.exists(LINODE_CLI_CONFIG_PATH): 
+    if not os.path.exists(LINODE_CLI_CONFIG_PATH):
         raise FileNotFoundError("Linode CLI configuration not found. Please ensure that linode-cli is configured.")
     config.read(LINODE_CLI_CONFIG_PATH)
-    
+
     # Get the default user
     user_section = config["DEFAULT"].get("default-user")
     if not user_section:
         raise ValueError("No default user specified in Linode CLI configuration.")
-    
+
     # Get the API token
     api_token = config[user_section].get("token")
     if not api_token:
         raise ValueError("No API token found in the Linode CLI configuration.")
-    
+
     return api_token
+
 
 def get_public_ip():
     """
@@ -206,6 +210,93 @@ def get_public_ip():
     validate_ip_address(ip_address)
 
     return ip_address
+
+
+def list_firewalls():
+    """
+    List all firewalls from the Linode API.
+
+    Returns:
+        list: A list of dictionaries containing firewall info (id, label, status).
+
+    Raises:
+        FileNotFoundError: If Linode CLI configuration is not found.
+        ValueError: If API token is not configured.
+        requests.RequestException: If the API request fails.
+    """
+    api_token = get_api_token()
+    headers = {
+        "Authorization": f"Bearer {api_token}",
+        "Content-Type": "application/json"
+    }
+
+    response = requests.get(
+        "https://api.linode.com/v4/networking/firewalls",
+        headers=headers,
+        timeout=REQUESTS_TIMEOUT
+    )
+    response.raise_for_status()
+
+    firewalls = response.json().get("data", [])
+    return [
+        {
+            "id": fw["id"],
+            "label": fw.get("label", ""),
+            "status": fw.get("status", "unknown")
+        }
+        for fw in firewalls
+    ]
+
+
+def select_firewall(quiet=False):
+    """
+    Interactively prompt the user to select a firewall from available firewalls.
+
+    Args:
+        quiet (bool): If True, suppress output messages.
+
+    Returns:
+        str: The selected firewall ID as a string.
+
+    Raises:
+        FileNotFoundError: If Linode CLI configuration is not found.
+        ValueError: If no firewalls are available, selection is invalid,
+                    or quiet mode is enabled (interactive selection not possible).
+        requests.RequestException: If the API request fails.
+    """
+    if quiet:
+        raise ValueError(
+            "Cannot select firewall interactively in quiet mode. "
+            "Please provide --firewall_id or create a config file first."
+        )
+
+    firewalls = list_firewalls()
+
+    if not firewalls:
+        raise ValueError("No firewalls found in your Linode account.")
+
+    print("\nAvailable firewalls:")
+    print("-" * 50)
+    for i, fw in enumerate(firewalls, 1):
+        print(f"  {i}. [{fw['id']}] {fw['label']} ({fw['status']})")
+    print("-" * 50)
+
+    while True:
+        try:
+            choice = input("Select a firewall (enter number): ").strip()
+            choice_num = int(choice)
+            if 1 <= choice_num <= len(firewalls):
+                selected = firewalls[choice_num - 1]
+                if not quiet:
+                    print(f"Selected: {selected['label']} (ID: {selected['id']})")
+                return str(selected["id"])
+            else:
+                print(f"Please enter a number between 1 and {len(firewalls)}")
+        except ValueError:
+            print("Please enter a valid number")
+        except (EOFError, KeyboardInterrupt):
+            raise ValueError("Firewall selection cancelled")
+
 
 def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=False):
     """
@@ -280,12 +371,14 @@ def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=F
     if debug:
         print("Remaining rules data after removal:", filtered_rules)
 
+
 def update_firewall_rule(
     firewall_id: str,
     label: str,
     debug: bool = False,
     quiet: bool = False,
-    dry_run: bool = False
+    dry_run: bool = False,
+    add_ip: bool = False
 ) -> None:
     """
     Update firewall rules by adding or updating rules with the current public IP address.
@@ -299,6 +392,7 @@ def update_firewall_rule(
         debug (bool): Whether to print debugging output.
         quiet (bool): If True, suppress output messages.
         dry_run (bool): If True, show what would be changed without making changes.
+        add_ip (bool): If True, append IP to existing rules instead of replacing.
 
     Returns:
         None
@@ -336,6 +430,7 @@ def update_firewall_rule(
     updated_rules = []
     rules_updated_count = 0
     rules_created_count = 0
+    ip_already_exists = False
 
     for protocol in protocols:
         rule_label = f"{label}-{protocol}"
@@ -352,10 +447,21 @@ def update_firewall_rule(
         rule_updated = False
         for rule in existing_rules:
             if rule.get("label") == rule_label:
-                # Update the existing rule with the new IP address
-                rule["addresses"]["ipv4"] = [ip_with_mask]
-                rule_updated = True
-                rules_updated_count += 1
+                existing_ips = rule.get("addresses", {}).get("ipv4", [])
+                if add_ip:
+                    # Append mode: add IP if not already present
+                    if ip_with_mask in existing_ips:
+                        ip_already_exists = True
+                        rule_updated = True
+                    else:
+                        rule["addresses"]["ipv4"] = existing_ips + [ip_with_mask]
+                        rule_updated = True
+                        rules_updated_count += 1
+                else:
+                    # Replace mode: replace all IPs with the new one
+                    rule["addresses"]["ipv4"] = [ip_with_mask]
+                    rule_updated = True
+                    rules_updated_count += 1
                 break
 
         if not rule_updated:
@@ -366,8 +472,18 @@ def update_firewall_rule(
     combined_rules = existing_rules + updated_rules
 
     if dry_run:
-        print(f"[DRY RUN] Would update {rules_updated_count} and create {rules_created_count} "
-              f"rule(s) for {label} with IP {ip_with_mask}")
+        mode_str = "add to" if add_ip else "update"
+        if ip_already_exists and add_ip and rules_updated_count == 0 and rules_created_count == 0:
+            print(f"[DRY RUN] IP {ip_with_mask} already exists in rules for {label}, no changes needed")
+        else:
+            print(f"[DRY RUN] Would {mode_str} {rules_updated_count} and create {rules_created_count} "
+                  f"rule(s) for {label} with IP {ip_with_mask}")
+        return
+
+    # Check if there's nothing to do (IP already exists in add mode)
+    if ip_already_exists and add_ip and rules_updated_count == 0 and rules_created_count == 0:
+        if not quiet:
+            print(f"IP {ip_with_mask} already exists in rules for {label}, no changes needed")
         return
 
     # Replace all inbound rules with the updated list
@@ -384,4 +500,7 @@ def update_firewall_rule(
         response.raise_for_status()
 
     if not quiet:
-        print(f"Created/updated firewall rules for {label} - [{ip_with_mask}]")
+        if add_ip:
+            print(f"Added IP {ip_with_mask} to firewall rules for {label}")
+        else:
+            print(f"Created/updated firewall rules for {label} - [{ip_with_mask}]")

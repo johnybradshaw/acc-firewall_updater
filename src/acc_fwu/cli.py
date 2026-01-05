@@ -7,6 +7,8 @@ from .firewall import (
     save_config,
     validate_firewall_id,
     validate_label,
+    list_firewalls,
+    select_firewall,
 )
 
 # Version is set dynamically by setuptools_scm, fallback for development
@@ -52,6 +54,16 @@ def main():
         help="Remove the specified rules from the firewall."
     )
     parser.add_argument(
+        "-a", "--add",
+        action="store_true",
+        help="Add IP to existing rules instead of replacing (useful for multiple locations)."
+    )
+    parser.add_argument(
+        "-l", "--list",
+        action="store_true",
+        help="List available firewalls and exit."
+    )
+    parser.add_argument(
         "-q", "--quiet",
         action="store_true",
         help="Suppress output messages (useful for cron/scripting)."
@@ -69,18 +81,45 @@ def main():
     args = parser.parse_args()
 
     try:
+        # Handle --list flag first
+        if args.list:
+            try:
+                firewalls = list_firewalls()
+                if not firewalls:
+                    print("No firewalls found in your Linode account.")
+                else:
+                    print("\nAvailable firewalls:")
+                    print("-" * 60)
+                    print(f"{'ID':<12} {'Label':<30} {'Status':<15}")
+                    print("-" * 60)
+                    for fw in firewalls:
+                        print(f"{fw['id']:<12} {fw['label']:<30} {fw['status']:<15}")
+                    print("-" * 60)
+                return
+            except Exception as e:
+                if args.debug:
+                    raise
+                print(f"Error listing firewalls: {e}", file=sys.stderr)
+                sys.exit(1)
+
         if args.firewall_id is None:
             try:
                 firewall_id, label = load_config()
                 if label is None:
                     label = args.label
-            except FileNotFoundError as e:
+            except FileNotFoundError:
+                # No config file - try interactive selection
                 if not args.quiet:
-                    print(
-                        "No configuration file found. Please run the script with "
-                        "--firewall_id (and optionally --label) to create the config file."
-                    )
-                sys.exit(1)
+                    print("No configuration file found. Let's select a firewall.")
+                try:
+                    firewall_id = select_firewall(quiet=args.quiet)
+                    label = args.label
+                    if not args.dry_run:
+                        save_config(firewall_id, label, quiet=args.quiet)
+                except (ValueError, EOFError, KeyboardInterrupt) as e:
+                    if not args.quiet:
+                        print(f"Error: {e}", file=sys.stderr)
+                    sys.exit(1)
         else:
             # Validate inputs early
             try:
@@ -108,7 +147,8 @@ def main():
                 label,
                 debug=args.debug,
                 quiet=args.quiet,
-                dry_run=args.dry_run
+                dry_run=args.dry_run,
+                add_ip=args.add
             )
 
     except ValueError as e:
