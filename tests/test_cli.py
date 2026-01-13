@@ -245,7 +245,8 @@ class TestCliErrorHandling:
 
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
-        assert "Validation error:" in captured.err
+        assert "Error:" in captured.err
+        assert "Some validation error" in captured.err
 
     def test_main_debug_mode_reraises_exceptions(self, monkeypatch):
         """Test that debug mode re-raises exceptions instead of catching them."""
@@ -366,7 +367,8 @@ class TestCliListFlag:
 
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
-        assert "Error listing firewalls" in captured.err
+        assert "Error:" in captured.err
+        assert "API Error" in captured.err
 
 
 class TestCliInteractiveSelection:

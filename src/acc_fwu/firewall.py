@@ -8,11 +8,12 @@ import configparser
 REQUESTS_TIMEOUT = 5  # Request timeout in seconds
 CONFIG_FILE_PATH = os.path.expanduser("~/.acc-fwu-config")  # Configuration file path
 LINODE_CLI_CONFIG_PATH = os.path.expanduser("~/.config/linode-cli")  # Linode CLI configuration path
+CONTENT_TYPE_JSON = "application/json"  # HTTP Content-Type header value
 
 # Validation patterns
 FIREWALL_ID_PATTERN = re.compile(r"^\d+$")  # Numeric firewall IDs only
 LABEL_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")  # Alphanumeric, underscore, hyphen, max 32 chars
-IPV4_PATTERN = re.compile(r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$")
+IPV4_PATTERN = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$")
 
 
 def validate_firewall_id(firewall_id):
@@ -227,7 +228,7 @@ def list_firewalls():
     api_token = get_api_token()
     headers = {
         "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json"
+        "Content-Type": CONTENT_TYPE_JSON
     }
 
     response = requests.get(
@@ -319,7 +320,7 @@ def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=F
     api_token = get_api_token()
     headers = {
         "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json"
+        "Content-Type": CONTENT_TYPE_JSON
     }
 
     # Get existing rules
@@ -372,6 +373,94 @@ def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=F
         print("Remaining rules data after removal:", filtered_rules)
 
 
+def _find_rule_by_label(existing_rules, rule_label):
+    """Find an existing rule by label."""
+    for rule in existing_rules:
+        if rule.get("label") == rule_label:
+            return rule
+    return None
+
+
+def _update_rule_ips(rule, ip_with_mask, add_ip):
+    """
+    Update rule IPs based on mode.
+
+    Returns:
+        tuple: (was_updated, ip_already_existed)
+    """
+    existing_ips = rule.get("addresses", {}).get("ipv4", [])
+
+    if add_ip:
+        if ip_with_mask in existing_ips:
+            return False, True
+        rule["addresses"]["ipv4"] = existing_ips + [ip_with_mask]
+        return True, False
+
+    rule["addresses"]["ipv4"] = [ip_with_mask]
+    return True, False
+
+
+def _create_firewall_rule(rule_label, protocol, ip_with_mask):
+    """Create a new firewall rule dictionary."""
+    return {
+        "label": rule_label,
+        "action": "ACCEPT",
+        "protocol": protocol,
+        "addresses": {"ipv4": [ip_with_mask]}
+    }
+
+
+def _process_protocol_rules(existing_rules, label, ip_with_mask, add_ip):
+    """
+    Process rules for all protocols.
+
+    Returns:
+        tuple: (new_rules, updated_count, created_count, ip_already_exists)
+    """
+    protocols = ["TCP", "UDP", "ICMP"]
+    new_rules = []
+    updated_count = 0
+    ip_already_exists = False
+
+    for protocol in protocols:
+        rule_label = f"{label}-{protocol}"
+        existing_rule = _find_rule_by_label(existing_rules, rule_label)
+
+        if existing_rule:
+            was_updated, already_existed = _update_rule_ips(existing_rule, ip_with_mask, add_ip)
+            if was_updated:
+                updated_count += 1
+            if already_existed:
+                ip_already_exists = True
+        else:
+            new_rules.append(_create_firewall_rule(rule_label, protocol, ip_with_mask))
+
+    return new_rules, updated_count, len(new_rules), ip_already_exists
+
+
+def _no_changes_needed(ip_already_exists, add_ip, updated_count, created_count):
+    """Check if no changes are needed (IP already exists in add mode)."""
+    return ip_already_exists and add_ip and updated_count == 0 and created_count == 0
+
+
+def _print_dry_run_message(add_ip, ip_already_exists, updated_count, created_count, ip_with_mask, label):
+    """Print dry-run status message."""
+    if _no_changes_needed(ip_already_exists, add_ip, updated_count, created_count):
+        print(f"[DRY RUN] IP {ip_with_mask} already exists in rules for {label}, no changes needed")
+    else:
+        mode_str = "add to" if add_ip else "update"
+        print(f"[DRY RUN] Would {mode_str} {updated_count} and create {created_count} "
+              f"rule(s) for {label} with IP {ip_with_mask}")
+
+
+def _print_result_message(add_ip, ip_with_mask, label):
+    """Print the result message after updating rules."""
+    if add_ip:
+        print(f"Added IP {ip_with_mask} to firewall rules for {label}")
+    else:
+        print(f"Created/updated firewall rules for {label} - [{ip_with_mask}]")
+
+
 def update_firewall_rule(
     firewall_id: str,
     label: str,
@@ -400,20 +489,14 @@ def update_firewall_rule(
     Raises:
         ValueError: If firewall_id or label are invalid.
     """
-    # Validate inputs
     validate_firewall_id(firewall_id)
     validate_label(label)
 
     api_token = get_api_token()
-    headers = {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_token}", "Content-Type": CONTENT_TYPE_JSON}
 
     ip_address = get_public_ip()
     ip_with_mask = f"{ip_address}/32"
-
-    protocols = ["TCP", "UDP", "ICMP"]
 
     # Get existing rules
     response = requests.get(
@@ -427,64 +510,22 @@ def update_firewall_rule(
     if debug:
         print("Existing rules data:", existing_rules)
 
-    updated_rules = []
-    rules_updated_count = 0
-    rules_created_count = 0
-    ip_already_exists = False
-
-    for protocol in protocols:
-        rule_label = f"{label}-{protocol}"
-        firewall_rule = {
-            "label": rule_label,
-            "action": "ACCEPT",
-            "protocol": protocol,
-            "addresses": {
-                "ipv4": [ip_with_mask],
-            }
-        }
-
-        # Check if a rule with the same label exists
-        rule_updated = False
-        for rule in existing_rules:
-            if rule.get("label") == rule_label:
-                existing_ips = rule.get("addresses", {}).get("ipv4", [])
-                if add_ip:
-                    # Append mode: add IP if not already present
-                    if ip_with_mask in existing_ips:
-                        ip_already_exists = True
-                        rule_updated = True
-                    else:
-                        rule["addresses"]["ipv4"] = existing_ips + [ip_with_mask]
-                        rule_updated = True
-                        rules_updated_count += 1
-                else:
-                    # Replace mode: replace all IPs with the new one
-                    rule["addresses"]["ipv4"] = [ip_with_mask]
-                    rule_updated = True
-                    rules_updated_count += 1
-                break
-
-        if not rule_updated:
-            updated_rules.append(firewall_rule)
-            rules_created_count += 1
-
-    # Combine existing rules with the updated or new rules
-    combined_rules = existing_rules + updated_rules
+    # Process rules for all protocols
+    new_rules, updated_count, created_count, ip_already_exists = _process_protocol_rules(
+        existing_rules, label, ip_with_mask, add_ip
+    )
 
     if dry_run:
-        mode_str = "add to" if add_ip else "update"
-        if ip_already_exists and add_ip and rules_updated_count == 0 and rules_created_count == 0:
-            print(f"[DRY RUN] IP {ip_with_mask} already exists in rules for {label}, no changes needed")
-        else:
-            print(f"[DRY RUN] Would {mode_str} {rules_updated_count} and create {rules_created_count} "
-                  f"rule(s) for {label} with IP {ip_with_mask}")
+        _print_dry_run_message(add_ip, ip_already_exists, updated_count, created_count, ip_with_mask, label)
         return
 
-    # Check if there's nothing to do (IP already exists in add mode)
-    if ip_already_exists and add_ip and rules_updated_count == 0 and rules_created_count == 0:
+    if _no_changes_needed(ip_already_exists, add_ip, updated_count, created_count):
         if not quiet:
             print(f"IP {ip_with_mask} already exists in rules for {label}, no changes needed")
         return
+
+    # Combine existing rules with the new rules
+    combined_rules = existing_rules + new_rules
 
     # Replace all inbound rules with the updated list
     response = requests.put(
@@ -500,7 +541,4 @@ def update_firewall_rule(
         response.raise_for_status()
 
     if not quiet:
-        if add_ip:
-            print(f"Added IP {ip_with_mask} to firewall rules for {label}")
-        else:
-            print(f"Created/updated firewall rules for {label} - [{ip_with_mask}]")
+        _print_result_message(add_ip, ip_with_mask, label)
