@@ -9,6 +9,7 @@ REQUESTS_TIMEOUT = 5  # Request timeout in seconds
 CONFIG_FILE_PATH = os.path.expanduser("~/.acc-fwu-config")  # Configuration file path
 LINODE_CLI_CONFIG_PATH = os.path.expanduser("~/.config/linode-cli")  # Linode CLI configuration path
 CONTENT_TYPE_JSON = "application/json"  # HTTP Content-Type header value
+LINODE_API_PAGE_SIZE = 100  # Number of results to request per page from the Linode API
 
 # Validation patterns
 FIREWALL_ID_PATTERN = re.compile(r"^\d+$")  # Numeric firewall IDs only
@@ -238,7 +239,7 @@ def list_firewalls():
         response = requests.get(
             "https://api.linode.com/v4/networking/firewalls",
             headers=headers,
-            params={"page": page, "page_size": 100},
+            params={"page": page, "page_size": LINODE_API_PAGE_SIZE},
             timeout=REQUESTS_TIMEOUT
         )
         response.raise_for_status()

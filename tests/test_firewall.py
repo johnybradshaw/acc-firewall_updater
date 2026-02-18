@@ -6,7 +6,7 @@ from acc_fwu.firewall import (
     load_config, save_config, get_api_token, get_public_ip,
     remove_firewall_rule, update_firewall_rule, CONFIG_FILE_PATH, LINODE_CLI_CONFIG_PATH,
     validate_firewall_id, validate_label, validate_ip_address,
-    list_firewalls, select_firewall
+    list_firewalls, select_firewall, LINODE_API_PAGE_SIZE
 )
 import os
 
@@ -735,8 +735,8 @@ class TestListFirewalls:
 
         # Verify two GET calls were made with correct page params
         assert mock_get.call_count == 2
-        assert mock_get.call_args_list[0][1]["params"] == {"page": 1, "page_size": 100}
-        assert mock_get.call_args_list[1][1]["params"] == {"page": 2, "page_size": 100}
+        assert mock_get.call_args_list[0][1]["params"] == {"page": 1, "page_size": LINODE_API_PAGE_SIZE}
+        assert mock_get.call_args_list[1][1]["params"] == {"page": 2, "page_size": LINODE_API_PAGE_SIZE}
 
     def test_list_firewalls_single_page_explicit(self, monkeypatch):
         """Test single-page response with explicit pages field."""
