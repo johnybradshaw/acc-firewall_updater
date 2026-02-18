@@ -215,7 +215,7 @@ def get_public_ip():
 
 def list_firewalls():
     """
-    List all firewalls from the Linode API.
+    List all firewalls from the Linode API, handling pagination.
 
     Returns:
         list: A list of dictionaries containing firewall info (id, label, status).
@@ -231,14 +231,25 @@ def list_firewalls():
         "Content-Type": CONTENT_TYPE_JSON
     }
 
-    response = requests.get(
-        "https://api.linode.com/v4/networking/firewalls",
-        headers=headers,
-        timeout=REQUESTS_TIMEOUT
-    )
-    response.raise_for_status()
+    firewalls = []
+    page = 1
 
-    firewalls = response.json().get("data", [])
+    while True:
+        response = requests.get(
+            "https://api.linode.com/v4/networking/firewalls",
+            headers=headers,
+            params={"page": page, "page_size": 100},
+            timeout=REQUESTS_TIMEOUT
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        firewalls.extend(data.get("data", []))
+
+        if page >= data.get("pages", 1):
+            break
+        page += 1
+
     return [
         {
             "id": fw["id"],
