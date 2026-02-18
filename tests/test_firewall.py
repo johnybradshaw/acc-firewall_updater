@@ -6,7 +6,7 @@ from acc_fwu.firewall import (
     load_config, save_config, get_api_token, get_public_ip,
     remove_firewall_rule, update_firewall_rule, CONFIG_FILE_PATH, LINODE_CLI_CONFIG_PATH,
     validate_firewall_id, validate_label, validate_ip_address,
-    list_firewalls, select_firewall
+    list_firewalls, select_firewall, LINODE_API_PAGE_SIZE
 )
 import os
 
@@ -700,6 +700,63 @@ class TestListFirewalls:
 
         assert len(firewalls) == 1
         assert firewalls[0]["label"] == ""
+
+    def test_list_firewalls_pagination(self, monkeypatch):
+        """Test that list_firewalls fetches all pages."""
+        page1_response = mock.Mock()
+        page1_response.json.return_value = {
+            "data": [
+                {"id": 1, "label": "firewall-1", "status": "enabled"},
+                {"id": 2, "label": "firewall-2", "status": "enabled"},
+            ],
+            "pages": 2,
+        }
+        page1_response.raise_for_status = mock.Mock()
+
+        page2_response = mock.Mock()
+        page2_response.json.return_value = {
+            "data": [
+                {"id": 3, "label": "firewall-3", "status": "disabled"},
+            ],
+            "pages": 2,
+        }
+        page2_response.raise_for_status = mock.Mock()
+
+        mock_get = mock.Mock(side_effect=[page1_response, page2_response])
+        monkeypatch.setattr(requests, "get", mock_get)
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        firewalls = list_firewalls()
+
+        assert len(firewalls) == 3
+        assert firewalls[0]["id"] == 1
+        assert firewalls[1]["id"] == 2
+        assert firewalls[2]["id"] == 3
+
+        # Verify two GET calls were made with correct page params
+        assert mock_get.call_count == 2
+        assert mock_get.call_args_list[0][1]["params"] == {"page": 1, "page_size": LINODE_API_PAGE_SIZE}
+        assert mock_get.call_args_list[1][1]["params"] == {"page": 2, "page_size": LINODE_API_PAGE_SIZE}
+
+    def test_list_firewalls_single_page_explicit(self, monkeypatch):
+        """Test single-page response with explicit pages field."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "data": [
+                {"id": 12345, "label": "my-firewall", "status": "enabled"},
+            ],
+            "pages": 1,
+        }
+        mock_response.raise_for_status = mock.Mock()
+
+        mock_get = mock.Mock(return_value=mock_response)
+        monkeypatch.setattr(requests, "get", mock_get)
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        firewalls = list_firewalls()
+
+        assert len(firewalls) == 1
+        assert mock_get.call_count == 1
 
 
 class TestSelectFirewall:
