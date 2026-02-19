@@ -4,7 +4,7 @@ from unittest import mock
 import requests
 from acc_fwu.firewall import (
     load_config, save_config, get_api_token, get_public_ip,
-    remove_firewall_rule, update_firewall_rule, CONFIG_FILE_PATH, LINODE_CLI_CONFIG_PATH,
+    remove_firewall_rule, update_firewall_rule,
     validate_firewall_id, validate_label, validate_ip_address,
     list_firewalls, select_firewall, LINODE_API_PAGE_SIZE
 )
@@ -49,7 +49,7 @@ class TestValidation:
         assert validate_ip_address("192.168.1.1") is True
         assert validate_ip_address("10.0.0.1") is True
         assert validate_ip_address("255.255.255.255") is True
-        assert validate_ip_address("0.0.0.0") is True
+        assert validate_ip_address("0.0.0.0") is True  # nosec B104
 
     def test_validate_ip_address_invalid(self):
         with pytest.raises(ValueError, match="Invalid IPv4 address"):
@@ -155,7 +155,7 @@ class TestApiToken:
         monkeypatch.setattr("acc_fwu.firewall.LINODE_CLI_CONFIG_PATH", str(linode_cli_config_file))
 
         token = get_api_token()
-        assert token == "test-token"
+        assert token == "test-token"  # nosec B105
 
     def test_get_api_token_file_not_found(self, monkeypatch):
         monkeypatch.setattr("acc_fwu.firewall.LINODE_CLI_CONFIG_PATH", "/non/existent/path")
