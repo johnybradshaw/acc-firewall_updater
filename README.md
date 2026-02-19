@@ -219,6 +219,14 @@ This project is licensed under the GNU General Public License v3 (GPLv3) - see t
 
 ## Summary of Changes
 
+### 2026-02-19 - v0.2.2
+
+- **Bug Fixes**:
+  - Fixed `list_firewalls()` only returning the first page of results - users with many firewalls would see incomplete lists in both `--list` output and interactive selection. All pages are now fetched.
+- **Improvements**:
+  - Extracted `LINODE_API_PAGE_SIZE` constant for the API page size value
+  - Refactored code to reduce cognitive complexity: extracted helper functions in `cli.py` and `firewall.py`, added `CONTENT_TYPE_JSON` constant, simplified regex patterns
+
 ### 2026-01-05 - v0.2.1
 
 - **Bug Fixes**:
