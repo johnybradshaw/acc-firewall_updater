@@ -164,3 +164,4 @@ cython_debug/
 
 # scm
 src/acc_fwu/_version.py
+.sonar
