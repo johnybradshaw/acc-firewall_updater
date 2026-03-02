@@ -19,6 +19,12 @@ This file provides guidance for AI assistants working with the `acc-fwu` (Akamai
 
 ```
 acc-firewall_updater/
+├── .github/workflows/     # CI/CD pipelines
+│   ├── python-app.yml     # Main test/scan/build/publish pipeline
+│   ├── claude-code-review.yml  # Claude code review workflow
+│   ├── claude.yml         # Claude PR assistant workflow
+│   ├── codeql.yml         # CodeQL analysis
+│   └── dependency-review.yml   # Dependency review
 ├── src/acc_fwu/           # Main package
 │   ├── __init__.py        # Empty package initializer
 │   ├── cli.py             # CLI entry point (argparse, main function)
@@ -29,8 +35,11 @@ acc-firewall_updater/
 ├── setup.py               # Package configuration (uses setuptools_scm)
 ├── pyproject.toml         # Build system config
 ├── requirements.txt       # Runtime dependencies
+├── CLAUDE.md              # AI assistant guidance (this file)
 ├── BUILD.md               # Local development guide
-└── RELEASE.md             # Release process documentation
+├── RELEASE.md             # Release process documentation
+├── LICENSE                # GPLv3 license
+└── MANIFEST.in            # Source distribution manifest
 ```
 
 ## Quick Commands
@@ -56,7 +65,12 @@ python -m build
 ## Key Code Patterns
 
 ### Architecture
-- **`cli.py`**: Handles argument parsing and orchestrates calls to `firewall.py`
+- **`cli.py`**: Handles argument parsing and orchestrates calls to `firewall.py`. Refactored into small helper functions:
+  - `_create_parser()` - Builds the argparse parser
+  - `_handle_list_command(debug)` - Handles `--list` flag
+  - `_resolve_firewall_config(args)` - Resolves config from args, file, or interactive selection
+  - `_resolve_config_from_args(args)` / `_resolve_config_from_file(label)` / `_resolve_config_interactive(args)` - Config resolution helpers
+  - `_execute_firewall_operation(args, firewall_id, label)` - Dispatches update or remove
 - **`firewall.py`**: Contains all business logic, API interactions, and validation
 
 ### Validation Functions (firewall.py)
@@ -66,35 +80,59 @@ All inputs are validated before use:
 - `validate_ip_address(ip)` - Valid IPv4 format
 
 ### Core Functions (firewall.py)
-- `list_firewalls()` - Lists all firewalls from Linode API
+- `list_firewalls()` - Lists all firewalls from Linode API (with pagination)
 - `select_firewall(quiet)` - Interactive firewall selection prompt
 - `update_firewall_rule(firewall_id, label, debug, quiet, dry_run, add_ip)` - Creates/updates rules
 - `remove_firewall_rule(firewall_id, label, debug, quiet, dry_run)` - Removes rules
 
-### Important Constants (firewall.py:8-16)
+Internal helpers (prefixed with `_`):
+- `_find_rule_by_label(existing_rules, rule_label)` - Finds a rule by label
+- `_update_rule_ips(rule, ip_with_mask, add_ip)` - Updates rule IPs based on mode
+- `_create_firewall_rule(rule_label, protocol, ip_with_mask)` - Creates a new rule dict
+- `_process_protocol_rules(existing_rules, label, ip_with_mask, add_ip)` - Processes rules for all protocols
+- `_no_changes_needed(...)` - Checks if IP already exists in add mode
+- `_print_dry_run_message(...)` / `_print_result_message(...)` - Output helpers
+
+### Important Constants (firewall.py:7-17)
 ```python
 REQUESTS_TIMEOUT = 5
 CONFIG_FILE_PATH = "~/.acc-fwu-config"
 LINODE_CLI_CONFIG_PATH = "~/.config/linode-cli"
+CONTENT_TYPE_JSON = "application/json"
+LINODE_API_PAGE_SIZE = 100
+# Validation patterns
+FIREWALL_ID_PATTERN = re.compile(r"^\d+$")
+LABEL_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
+IPV4_PATTERN = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$")
 ```
 
-### Error Handling Pattern (cli.py:71-121)
-- `ValueError` exceptions → "Validation error" message, exit code 1
-- `FileNotFoundError` → Configuration guidance message
-- General exceptions → "Error" message (or re-raised in debug mode)
+### Error Handling Pattern (cli.py:133-149)
+- `ValueError`, `EOFError`, `KeyboardInterrupt` → Error message to stderr, exit code 1
+- `FileNotFoundError` → Handled internally by `_resolve_firewall_config` (triggers interactive selection)
+- General exceptions → "Error" message to stderr (or re-raised in debug mode)
 
 ## Testing Conventions
 
 ### Test Organization
 Tests are organized by class with descriptive names:
+
+**test_firewall.py** (unit tests for firewall logic):
 - `TestValidation` - Input validation functions
 - `TestConfig` - Configuration file handling
 - `TestApiToken` - Linode CLI token retrieval
 - `TestPublicIp` - IP detection
-- `TestRemoveFirewallRule` / `TestUpdateFirewallRule` - Core functionality
-- `TestListFirewalls` - Firewall listing functionality
+- `TestRemoveFirewallRule` - Rule removal
+- `TestUpdateFirewallRule` - Rule creation/update
+- `TestListFirewalls` - Firewall listing (with pagination)
 - `TestSelectFirewall` - Interactive firewall selection
+
+**test_cli.py** (CLI integration tests):
 - `TestCliBasicOperations` - Basic CLI operations
+- `TestCliRemoveOperation` - Remove flag tests
+- `TestCliNewOptions` - Dry-run and quiet mode tests
+- `TestCliValidation` - Input validation via CLI
+- `TestCliErrorHandling` - Error handling and debug mode
+- `TestCliVersion` - Version flag tests
 - `TestCliAddFlag` - Add mode (--add flag) tests
 - `TestCliListFlag` - List firewalls (--list flag) tests
 - `TestCliInteractiveSelection` - Interactive selection tests
@@ -119,17 +157,23 @@ pytest tests/test_cli.py::TestCliBasicOperations::test_main_with_firewall_id_and
 
 ## CI/CD Pipeline
 
-The GitHub Actions workflow (`.github/workflows/python-app.yml`) runs:
+### Main Pipeline (`.github/workflows/python-app.yml`)
 
 1. **Test**: Linting (flake8) + Tests (pytest)
 2. **Scan**: Security scanning (Bandit, Snyk)
-3. **Build**: Creates distribution packages
-4. **Publish**: Uploads to PyPI (only on tagged releases)
+3. **Build**: Creates distribution packages with build attestation
+4. **Publish**: Uploads to PyPI (only on tagged releases via trusted publishing)
 
 Triggers:
 - Push to `main` (excluding .md and .yml files)
 - Pull requests to `main`
 - GitHub releases (triggers PyPI publish)
+
+### Additional Workflows
+- `claude-code-review.yml` - Claude-powered code review on PRs
+- `claude.yml` - Claude PR assistant
+- `codeql.yml` - CodeQL security analysis
+- `dependency-review.yml` - Dependency review for PRs
 
 ## Common Development Tasks
 

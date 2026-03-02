@@ -213,6 +213,11 @@ See [BUILD.md](BUILD.md) for local development and testing instructions.
 
 See [RELEASE.md](RELEASE.md) for information on creating releases.
 
+The project uses multiple GitHub Actions workflows for quality assurance:
+- **Test, Scan, Build, & Publish** - Main CI/CD pipeline (lint, test, security scan, build, PyPI publish)
+- **CodeQL Analysis** - Automated code security scanning
+- **Dependency Review** - Reviews dependency changes in pull requests
+
 ## License
 
 This project is licensed under the GNU General Public License v3 (GPLv3) - see the [LICENSE](LICENSE) file for details.
