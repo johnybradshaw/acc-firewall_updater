@@ -451,3 +451,83 @@ class TestCliInteractiveSelection:
         assert "No configuration file found" not in captured.out
         # Error message should be suppressed in quiet mode
         assert captured.out == ""
+
+
+class TestCliLkeFlag:
+    """Tests for the --lke flag (LKE Control Plane ACL automation)."""
+
+    def test_main_with_lke_flag(self, monkeypatch):
+        """Test --lke dispatches to update_all_lke_acls."""
+        mock_update = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke"])
+
+        main()
+
+        mock_update.assert_called_once_with(debug=False, quiet=False, dry_run=False, remove=False)
+
+    def test_main_with_lke_and_remove(self, monkeypatch):
+        """Test --lke -r passes remove=True."""
+        mock_update = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke", "-r"])
+
+        main()
+
+        mock_update.assert_called_once_with(debug=False, quiet=False, dry_run=False, remove=True)
+
+    def test_main_with_lke_dry_run_and_quiet(self, monkeypatch):
+        """Test --lke honors --dry-run and --quiet."""
+        mock_update = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke", "--dry-run", "-q"])
+
+        main()
+
+        mock_update.assert_called_once_with(debug=False, quiet=True, dry_run=True, remove=False)
+
+    def test_main_with_lke_list(self, monkeypatch, capsys):
+        """Test --lke --list shows LKE clusters and exits without touching ACLs."""
+        mock_list = mock.MagicMock(return_value=[
+            {"id": 1, "label": "prod", "region": "us-east",
+             "k8s_version": "1.30", "tier": "standard", "status": "ready"},
+            {"id": 2, "label": "ent", "region": "eu-west",
+             "k8s_version": "1.30", "tier": "enterprise", "status": "ready"},
+        ])
+        mock_update = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.list_lke_clusters", mock_list)
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke", "--list"])
+
+        main()
+
+        mock_list.assert_called_once()
+        mock_update.assert_not_called()
+        captured = capsys.readouterr()
+        assert "Available LKE clusters" in captured.out
+        assert "prod" in captured.out
+        assert "enterprise" in captured.out
+
+    def test_main_with_lke_list_empty(self, monkeypatch, capsys):
+        """Test --lke --list when no clusters exist."""
+        mock_list = mock.MagicMock(return_value=[])
+        monkeypatch.setattr("acc_fwu.cli.list_lke_clusters", mock_list)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke", "--list"])
+
+        main()
+
+        captured = capsys.readouterr()
+        assert "No LKE clusters found" in captured.out
+
+    def test_main_with_lke_does_not_load_firewall_config(self, monkeypatch):
+        """Test that --lke skips firewall config resolution entirely."""
+        mock_update = mock.MagicMock()
+        mock_load = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update)
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke"])
+
+        main()
+
+        mock_update.assert_called_once()
+        mock_load.assert_not_called()
