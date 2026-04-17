@@ -102,11 +102,20 @@ jobs:
         pip install setuptools wheel
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    - name: Bandit Scan
-      uses: shundor/python-bandit-scan@v1.0
+    - name: Install Bandit
+      run: |
+        pip install 'bandit[sarif]'
+
+    - name: Run Bandit
+      run: |
+        bandit -r src/ -f sarif -o bandit.sarif
+
+    - name: Upload Bandit SARIF to GitHub Code Scanning
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
       with:
-        exit_zero: false
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        sarif_file: bandit.sarif
+        category: bandit
 
     - name: Run Snyk to check for vulnerabilities
       uses: snyk/actions/python@master
