@@ -21,6 +21,7 @@ A tool to automatically update the [Akamai Connected Cloud (ACC) / Linode](https
 - Secure configuration file storage (owner-only permissions)
 - **Interactive firewall selection** - List and choose from available firewalls
 - **Add mode** - Accumulate multiple IP addresses (ideal for traveling)
+- **LKE Control Plane ACL automation** - Apply your current IP to every LKE and LKE-E cluster's Control Plane ACL with a single command
 
 ## Prerequisites
 
@@ -83,7 +84,7 @@ This will:
 ### Command-Line Options
 
 ```
-usage: acc-fwu [-h] [--firewall_id FIREWALL_ID] [--label LABEL] [-d] [-r] [-a] [-l] [-q] [--dry-run] [-v]
+usage: acc-fwu [-h] [--firewall_id FIREWALL_ID] [--label LABEL] [-d] [-r] [-a] [-l] [--lke] [-q] [--dry-run] [-v]
 
 Create, update, or remove Akamai Connected Cloud (Linode) firewall rules with your current IP address.
 
@@ -95,7 +96,9 @@ options:
   -d, --debug           Enable debug mode to show existing rules data.
   -r, --remove          Remove the specified rules from the firewall.
   -a, --add             Add IP to existing rules instead of replacing (useful for multiple locations).
-  -l, --list            List available firewalls and exit.
+  -l, --list            List available firewalls (or LKE clusters with --lke) and exit.
+  --lke                 Target LKE/LKE-E Control Plane ACLs instead of firewall rules.
+                        Adds (or removes with -r) your current public IP to every cluster's ACL.
   -q, --quiet           Suppress output messages (useful for cron/scripting).
   --dry-run             Show what would be done without making any changes.
   -v, --version         show program's version number and exit
@@ -179,6 +182,43 @@ acc-fwu --remove
 acc-fwu  # Creates new rules with only your current IP
 ```
 
+### LKE / LKE-E Control Plane ACLs
+
+The `--lke` flag automates [Control Plane ACL](https://techdocs.akamai.com/linode-api/reference/put-lke-cluster-acl) updates for every LKE and LKE-Enterprise (LKE-E) cluster in your account. It fetches each cluster's current ACL, then appends (or removes) your public IP — preserving the `enabled` state and any existing IPv4/IPv6 entries.
+
+**List all LKE / LKE-E clusters:**
+
+```bash
+acc-fwu --lke --list
+```
+
+**Add your current IP to every cluster's Control Plane ACL (idempotent):**
+
+```bash
+acc-fwu --lke
+```
+
+**Preview changes:**
+
+```bash
+acc-fwu --lke --dry-run
+```
+
+**Remove your current IP from every cluster's ACL:**
+
+```bash
+acc-fwu --lke --remove
+```
+
+**Run silently in a cron job:**
+
+```bash
+# Refresh LKE ACLs every 15 minutes
+*/15 * * * * /usr/local/bin/acc-fwu --lke --quiet
+```
+
+Clusters whose ACL is disabled will still have the address stored, but `acc-fwu` prints a warning — the entry will not be enforced until you enable the ACL. Failures on individual clusters are logged and counted in the final summary but do not abort the run.
+
 ### Cron Job Example
 
 To automatically update your firewall rules every hour:
@@ -223,6 +263,14 @@ The project uses multiple GitHub Actions workflows for quality assurance:
 This project is licensed under the GNU General Public License v3 (GPLv3) - see the [LICENSE](LICENSE) file for details.
 
 ## Summary of Changes
+
+### 2026-04-17 - v0.3.0
+
+- **New Features**:
+  - Added `--lke` flag to automate Linode Kubernetes Engine (LKE) and LKE-Enterprise (LKE-E) Control Plane ACL updates. Combined with the existing flags: `--lke` adds your public IP to every cluster's ACL, `--lke --remove` removes it, `--lke --list` enumerates clusters, and `--lke --dry-run` previews the change set.
+- **Improvements**:
+  - ACL updates preserve each cluster's existing `enabled` state and IPv6 entries, only mutating the IPv4 list.
+  - Per-cluster failures (HTTP errors fetching or updating an ACL) are reported and counted without aborting the overall run.
 
 ### 2026-02-19 - v0.2.2
 

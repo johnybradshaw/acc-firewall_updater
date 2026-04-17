@@ -10,6 +10,7 @@ from .firewall import (
     list_firewalls,
     select_firewall,
 )
+from .lke import list_lke_clusters, update_all_lke_acls
 
 # Version is set dynamically by setuptools_scm, fallback for development
 try:
@@ -36,6 +37,36 @@ def _handle_list_command(debug):
     for fw in firewalls:
         print(f"{fw['id']:<12} {fw['label']:<30} {fw['status']:<15}")
     print("-" * 60)
+
+
+def _handle_lke_list_command():
+    """Handle the --list command when combined with --lke."""
+    clusters = list_lke_clusters()
+    if not clusters:
+        print("No LKE clusters found in your Linode account.")
+        return
+
+    print("\nAvailable LKE clusters:")
+    print("-" * 80)
+    print(f"{'ID':<10} {'Label':<28} {'Region':<14} {'Tier':<12} {'Status':<12}")
+    print("-" * 80)
+    for c in clusters:
+        tier = "enterprise" if c.get("tier") == "enterprise" else "standard"
+        print(f"{c['id']:<10} {c['label']:<28} {c['region']:<14} {tier:<12} {c['status']:<12}")
+    print("-" * 80)
+
+
+def _handle_lke_command(args):
+    """Handle LKE Control Plane ACL operations across all clusters."""
+    if args.list:
+        _handle_lke_list_command()
+        return
+    update_all_lke_acls(
+        debug=args.debug,
+        quiet=args.quiet,
+        dry_run=args.dry_run,
+        remove=args.remove,
+    )
 
 
 def _resolve_config_from_file(args_label):
@@ -91,7 +122,11 @@ def _create_parser():
     parser.add_argument("-a", "--add", action="store_true",
                         help="Add IP to existing rules instead of replacing (useful for multiple locations).")
     parser.add_argument("-l", "--list", action="store_true",
-                        help="List available firewalls and exit.")
+                        help="List available firewalls (or LKE clusters with --lke) and exit.")
+    parser.add_argument("--lke", action="store_true",
+                        help="Target LKE/LKE-E Control Plane ACLs instead of firewall rules. "
+                             "Adds (or removes with -r) your current public IP to every "
+                             "cluster's ACL.")
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="Suppress output messages (useful for cron/scripting).")
     parser.add_argument("--dry-run", action="store_true",
@@ -131,6 +166,10 @@ def main():
     args = parser.parse_args()
 
     try:
+        if args.lke:
+            _handle_lke_command(args)
+            return
+
         if args.list:
             _handle_list_command(args.debug)
             return

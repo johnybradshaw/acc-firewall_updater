@@ -14,6 +14,7 @@ This file provides guidance for AI assistants working with the `acc-fwu` (Akamai
 - Input validation for security
 - Interactive firewall selection (lists available firewalls)
 - Add mode for multiple IP addresses (travel use case)
+- LKE / LKE-E Control Plane ACL automation (`--lke`)
 
 ## Codebase Structure
 
@@ -28,10 +29,12 @@ acc-firewall_updater/
 ├── src/acc_fwu/           # Main package
 │   ├── __init__.py        # Empty package initializer
 │   ├── cli.py             # CLI entry point (argparse, main function)
-│   └── firewall.py        # Core business logic (API calls, validation)
+│   ├── firewall.py        # Core business logic (API calls, validation)
+│   └── lke.py             # LKE/LKE-E Control Plane ACL automation
 ├── tests/                 # Test suite
 │   ├── test_cli.py        # CLI integration tests
-│   └── test_firewall.py   # Unit tests for firewall logic
+│   ├── test_firewall.py   # Unit tests for firewall logic
+│   └── test_lke.py        # Unit tests for LKE ACL logic
 ├── setup.py               # Package configuration (uses setuptools_scm)
 ├── pyproject.toml         # Build system config
 ├── requirements.txt       # Runtime dependencies
@@ -237,8 +240,24 @@ The tool uses the Linode API v4:
 - Endpoints:
   - `/networking/firewalls` - List all firewalls (GET)
   - `/networking/firewalls/{firewall_id}/rules` - Manage rules (GET/PUT)
+  - `/lke/clusters` - List all LKE and LKE-E clusters (GET, paginated)
+  - `/lke/clusters/{cluster_id}/control_plane_acl` - Manage Control Plane ACL (GET/PUT)
 - Authentication: Bearer token from Linode CLI config
-- Methods: GET (fetch firewalls/rules), PUT (update rules)
+- Methods: GET (fetch firewalls/rules/clusters/ACL), PUT (update rules, update ACL)
+
+### LKE Module (`lke.py`)
+
+- `list_lke_clusters()` - Paginated list of LKE/LKE-E clusters. `tier == "enterprise"` flags LKE-E.
+- `get_lke_acl(cluster_id, headers=None)` - Returns the normalized ACL object
+  (`{"enabled": bool, "addresses": {"ipv4": [...], "ipv6": [...]}}`). Missing
+  or null sub-fields are replaced with empty lists so callers can treat every
+  cluster uniformly.
+- `put_lke_acl(cluster_id, acl, headers=None, debug=False)` - Wraps the ACL in
+  the `{"acl": {...}}` envelope the PUT endpoint expects.
+- `update_all_lke_acls(debug, quiet, dry_run, remove)` - Orchestrator. Iterates
+  clusters and applies `_apply_ip_to_acl` to add/remove the current public IP.
+  Per-cluster fetch/PUT failures are logged and counted (`failed`) but do not
+  abort the batch. Returns `{"changed", "unchanged", "failed", "total"}`.
 
 ## File Locations
 
