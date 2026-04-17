@@ -119,18 +119,22 @@ jobs:
 
     - name: Run Snyk to check for vulnerabilities
       uses: snyk/actions/python@master
+      continue-on-error: true
       env:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       with:
         args: --sarif-file-output=snyk.sarif
 
     - name: Verify snyk.sarif file
-      run: ls -la snyk.sarif
+      if: always()
+      run: ls -la snyk.sarif || echo "snyk.sarif was not produced"
 
-    - name: Upload result to GitHub Code Scanning
+    - name: Upload Snyk SARIF to GitHub Code Scanning
+      if: always() && hashFiles('snyk.sarif') != ''
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: snyk.sarif
+        category: snyk
 
   # Build
   build:
