@@ -6,7 +6,6 @@ with open("README.md") as f:
 setup(
     name="acc-fwu",
     use_scm_version=True,  # Use setuptools_scm for versioning
-    setup_requires=["setuptools_scm"],  # Ensure setuptools_scm is available during setup
     package_dir={"": "src"},  # Sets 'src' as the root directory for packages
     packages=find_packages(where="src"),  # Finds packages in the 'src' directory
     install_requires=[
@@ -28,5 +27,5 @@ setup(
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.6",
+    python_requires=">=3.9",
 )
