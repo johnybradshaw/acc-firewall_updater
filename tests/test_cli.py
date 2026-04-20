@@ -19,7 +19,10 @@ class TestCliBasicOperations:
         monkeypatch.setattr("acc_fwu.cli.validate_firewall_id", mock_validate_firewall_id)
         monkeypatch.setattr("acc_fwu.cli.validate_label", mock_validate_label)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label'])
+        monkeypatch.setattr(
+            sys, 'argv',
+            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '--no-lke'],
+        )
 
         main()
 
@@ -36,7 +39,7 @@ class TestCliBasicOperations:
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
 
         main()
 
@@ -50,7 +53,7 @@ class TestCliBasicOperations:
         mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
 
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -66,7 +69,7 @@ class TestCliBasicOperations:
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
 
         main()
 
@@ -75,6 +78,36 @@ class TestCliBasicOperations:
         mock_update_firewall_rule.assert_called_once_with(
             "12345", "Default-Label", debug=False, quiet=False, dry_run=False, add_ip=False
         )
+
+    def test_main_prints_active_firewall_from_config(self, monkeypatch, capsys):
+        """Test CLI prints which saved firewall is being used."""
+        mock_load_config = mock.MagicMock(return_value=("12345", "Loaded-Label"))
+        mock_update_firewall_rule = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
+
+        main()
+
+        captured = capsys.readouterr()
+        assert "Using saved firewall" in captured.out
+        assert "12345" in captured.out
+        assert "Loaded-Label" in captured.out
+
+    def test_main_quiet_suppresses_active_firewall_notice(self, monkeypatch, capsys):
+        """Quiet mode should not print the 'Using saved firewall' notice."""
+        mock_load_config = mock.MagicMock(return_value=("12345", "Loaded-Label"))
+        mock_update_firewall_rule = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke', '-q'])
+
+        main()
+
+        captured = capsys.readouterr()
+        assert "Using saved firewall" not in captured.out
 
 
 class TestCliRemoveOperation:
@@ -92,7 +125,10 @@ class TestCliRemoveOperation:
         monkeypatch.setattr("acc_fwu.cli.validate_firewall_id", mock_validate_firewall_id)
         monkeypatch.setattr("acc_fwu.cli.validate_label", mock_validate_label)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '-r'])
+        monkeypatch.setattr(
+            sys, 'argv',
+            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '-r', '--no-lke'],
+        )
 
         main()
 
@@ -117,7 +153,10 @@ class TestCliNewOptions:
         monkeypatch.setattr("acc_fwu.cli.validate_firewall_id", mock_validate_firewall_id)
         monkeypatch.setattr("acc_fwu.cli.validate_label", mock_validate_label)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '-q'])
+        monkeypatch.setattr(
+            sys, 'argv',
+            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '-q', '--no-lke'],
+        )
 
         main()
 
@@ -138,7 +177,10 @@ class TestCliNewOptions:
         monkeypatch.setattr("acc_fwu.cli.validate_firewall_id", mock_validate_firewall_id)
         monkeypatch.setattr("acc_fwu.cli.validate_label", mock_validate_label)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '--dry-run'])
+        monkeypatch.setattr(
+            sys, 'argv',
+            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '--dry-run', '--no-lke'],
+        )
 
         main()
 
@@ -160,7 +202,7 @@ class TestCliNewOptions:
         monkeypatch.setattr("acc_fwu.cli.validate_firewall_id", mock_validate_firewall_id)
         monkeypatch.setattr("acc_fwu.cli.validate_label", mock_validate_label)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--firewall_id', '12345', '-d'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--firewall_id', '12345', '-d', '--no-lke'])
 
         main()
 
@@ -173,7 +215,7 @@ class TestCliNewOptions:
         mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '-q'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '-q', '--no-lke'])
 
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -220,7 +262,7 @@ class TestCliErrorHandling:
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
 
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -238,7 +280,7 @@ class TestCliErrorHandling:
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
 
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -257,7 +299,7 @@ class TestCliErrorHandling:
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--debug'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--debug', '--no-lke'])
 
         # With --debug, the exception should be re-raised, not caught
         with pytest.raises(RuntimeError, match="Unexpected error"):
@@ -296,7 +338,10 @@ class TestCliAddFlag:
         monkeypatch.setattr("acc_fwu.cli.validate_firewall_id", mock_validate_firewall_id)
         monkeypatch.setattr("acc_fwu.cli.validate_label", mock_validate_label)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--firewall_id', '12345', '--label', 'Test', '-a'])
+        monkeypatch.setattr(
+            sys, 'argv',
+            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test', '-a', '--no-lke'],
+        )
 
         main()
 
@@ -312,7 +357,7 @@ class TestCliAddFlag:
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--add'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--add', '--no-lke'])
 
         main()
 
@@ -386,7 +431,7 @@ class TestCliInteractiveSelection:
         monkeypatch.setattr("acc_fwu.cli.save_config", mock_save_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
 
         main()
 
@@ -408,7 +453,7 @@ class TestCliInteractiveSelection:
         monkeypatch.setattr("acc_fwu.cli.save_config", mock_save_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--dry-run'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--dry-run', '--no-lke'])
 
         main()
 
@@ -426,7 +471,7 @@ class TestCliInteractiveSelection:
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.select_firewall", mock_select_firewall)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
 
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -531,3 +576,85 @@ class TestCliLkeFlag:
 
         mock_update.assert_called_once()
         mock_load.assert_not_called()
+
+
+class TestCliDefaultLkeBehavior:
+    """Tests for the default-on LKE update that runs alongside firewall updates."""
+
+    def test_firewall_run_also_updates_lke_by_default(self, monkeypatch):
+        """Without --lke/--no-lke, a firewall update also calls update_all_lke_acls."""
+        mock_load = mock.MagicMock(return_value=("12345", "Label"))
+        mock_update_fw = mock.MagicMock()
+        mock_update_lke = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_fw)
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update_lke)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu"])
+
+        main()
+
+        mock_update_fw.assert_called_once()
+        mock_update_lke.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, implicit=True,
+        )
+
+    def test_no_lke_flag_skips_lke_update(self, monkeypatch):
+        """--no-lke should skip the implicit LKE ACL update."""
+        mock_load = mock.MagicMock(return_value=("12345", "Label"))
+        mock_update_fw = mock.MagicMock()
+        mock_update_lke = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_fw)
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update_lke)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--no-lke"])
+
+        main()
+
+        mock_update_fw.assert_called_once()
+        mock_update_lke.assert_not_called()
+
+    def test_remove_flag_propagates_to_implicit_lke_update(self, monkeypatch):
+        """acc-fwu -r should remove IP from both firewall and LKE ACLs by default."""
+        mock_load = mock.MagicMock(return_value=("12345", "Label"))
+        mock_remove_fw = mock.MagicMock()
+        mock_update_lke = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
+        monkeypatch.setattr("acc_fwu.cli.remove_firewall_rule", mock_remove_fw)
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update_lke)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "-r"])
+
+        main()
+
+        mock_remove_fw.assert_called_once()
+        mock_update_lke.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=True, implicit=True,
+        )
+
+
+class TestCliListTableFormatting:
+    """Tests for dynamic column sizing in --list output."""
+
+    def test_firewall_list_columns_accommodate_long_labels(self, monkeypatch, capsys):
+        """Labels longer than the default width must not corrupt column alignment."""
+        long_label = "resilio-sync-jumpbox-fw-e4e83e29"  # 32 chars
+        mock_list = mock.MagicMock(return_value=[
+            {"id": 243627, "label": "default", "status": "enabled"},
+            {"id": 3709226, "label": long_label, "status": "enabled"},
+        ])
+        monkeypatch.setattr("acc_fwu.cli.list_firewalls", mock_list)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--list"])
+
+        main()
+
+        captured = capsys.readouterr()
+        # Each row should align: find the line with the long label and
+        # ensure the status column follows after the full label.
+        for line in captured.out.splitlines():
+            if long_label in line:
+                assert line.index("enabled") > line.index(long_label) + len(long_label)
+                break
+        else:
+            pytest.fail(f"long label {long_label!r} not found in output:\n{captured.out}")

@@ -226,7 +226,7 @@ def _process_cluster(cluster, ip_with_mask, remove, debug, quiet, dry_run, heade
     return "changed"
 
 
-def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False):
+def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False, implicit=False):
     """
     Add (or remove) the current public IP on every LKE/LKE-E Control Plane ACL.
 
@@ -235,6 +235,9 @@ def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False):
         quiet (bool): Suppress informational output.
         dry_run (bool): Show the planned changes without calling the PUT API.
         remove (bool): Remove the IP instead of adding it.
+        implicit (bool): True when this call is part of the default firewall+LKE
+            run (i.e., user did not pass ``--lke`` explicitly). Suppresses the
+            "No LKE clusters found" notice so users without LKE see no noise.
 
     Returns:
         dict: Summary counts: ``changed``, ``unchanged``, ``failed``, ``total``.
@@ -243,7 +246,7 @@ def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False):
     clusters = list_lke_clusters()
 
     if not clusters:
-        if not quiet:
+        if not quiet and not implicit:
             print("No LKE clusters found in your Linode account.")
         return {"changed": 0, "unchanged": 0, "failed": 0, "total": 0}
 

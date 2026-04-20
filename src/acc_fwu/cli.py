@@ -1,6 +1,7 @@
 import argparse
 import sys
 from .firewall import (
+    CONFIG_FILE_PATH,
     update_firewall_rule,
     remove_firewall_rule,
     load_config,
@@ -23,6 +24,23 @@ except ImportError:
     __version__ = "0.0.0-dev"
 
 
+def _print_table(title, headers, rows):
+    """Print a table with columns auto-sized to their widest row."""
+    widths = [
+        max(len(h), *(len(str(row[i])) for row in rows))
+        for i, h in enumerate(headers)
+    ]
+    total = sum(widths) + 2 * (len(headers) - 1)
+
+    print(f"\n{title}")
+    print("-" * total)
+    print("  ".join(f"{h:<{w}}" for h, w in zip(headers, widths)))
+    print("-" * total)
+    for row in rows:
+        print("  ".join(f"{str(v):<{w}}" for v, w in zip(row, widths)))
+    print("-" * total)
+
+
 def _handle_list_command(debug):
     """Handle the --list command to display available firewalls."""
     firewalls = list_firewalls()
@@ -30,13 +48,8 @@ def _handle_list_command(debug):
         print("No firewalls found in your Linode account.")
         return
 
-    print("\nAvailable firewalls:")
-    print("-" * 60)
-    print(f"{'ID':<12} {'Label':<30} {'Status':<15}")
-    print("-" * 60)
-    for fw in firewalls:
-        print(f"{fw['id']:<12} {fw['label']:<30} {fw['status']:<15}")
-    print("-" * 60)
+    rows = [(fw["id"], fw["label"], fw["status"]) for fw in firewalls]
+    _print_table("Available firewalls:", ["ID", "Label", "Status"], rows)
 
 
 def _handle_lke_list_command():
@@ -46,14 +59,21 @@ def _handle_lke_list_command():
         print("No LKE clusters found in your Linode account.")
         return
 
-    print("\nAvailable LKE clusters:")
-    print("-" * 80)
-    print(f"{'ID':<10} {'Label':<28} {'Region':<14} {'Tier':<12} {'Status':<12}")
-    print("-" * 80)
-    for c in clusters:
-        tier = "enterprise" if c.get("tier") == "enterprise" else "standard"
-        print(f"{c['id']:<10} {c['label']:<28} {c['region']:<14} {tier:<12} {c['status']:<12}")
-    print("-" * 80)
+    rows = [
+        (
+            c["id"],
+            c["label"],
+            c["region"],
+            "enterprise" if c.get("tier") == "enterprise" else "standard",
+            c["status"],
+        )
+        for c in clusters
+    ]
+    _print_table(
+        "Available LKE clusters:",
+        ["ID", "Label", "Region", "Tier", "Status"],
+        rows,
+    )
 
 
 def _handle_lke_command(args):
@@ -69,11 +89,14 @@ def _handle_lke_command(args):
     )
 
 
-def _resolve_config_from_file(args_label):
+def _resolve_config_from_file(args_label, quiet=False):
     """Load config from file, using args_label as fallback."""
     firewall_id, label = load_config()
     if label is None:
         label = args_label
+    if not quiet:
+        print(f"Using saved firewall: ID {firewall_id}, label '{label}' "
+              f"(from {CONFIG_FILE_PATH})")
     return firewall_id, label
 
 
@@ -124,9 +147,12 @@ def _create_parser():
     parser.add_argument("-l", "--list", action="store_true",
                         help="List available firewalls (or LKE clusters with --lke) and exit.")
     parser.add_argument("--lke", action="store_true",
-                        help="Target LKE/LKE-E Control Plane ACLs instead of firewall rules. "
+                        help="Target LKE/LKE-E Control Plane ACLs only; skip firewall rules. "
                              "Adds (or removes with -r) your current public IP to every "
                              "cluster's ACL.")
+    parser.add_argument("--no-lke", action="store_true",
+                        help="Skip the default LKE/LKE-E Control Plane ACL update. "
+                             "By default, acc-fwu updates both firewall rules and LKE ACLs.")
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="Suppress output messages (useful for cron/scripting).")
     parser.add_argument("--dry-run", action="store_true",
@@ -141,7 +167,7 @@ def _resolve_firewall_config(args):
         return _resolve_config_from_args(args)
 
     try:
-        return _resolve_config_from_file(args.label)
+        return _resolve_config_from_file(args.label, quiet=args.quiet)
     except FileNotFoundError:
         return _resolve_config_interactive(args)
 
@@ -176,6 +202,15 @@ def main():
 
         firewall_id, label = _resolve_firewall_config(args)
         _execute_firewall_operation(args, firewall_id, label)
+
+        if not args.no_lke:
+            update_all_lke_acls(
+                debug=args.debug,
+                quiet=args.quiet,
+                dry_run=args.dry_run,
+                remove=args.remove,
+                implicit=True,
+            )
 
     except (ValueError, EOFError, KeyboardInterrupt) as e:
         if not args.quiet:
