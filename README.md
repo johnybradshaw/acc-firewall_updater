@@ -237,11 +237,14 @@ Clusters whose ACL is disabled will still have the address stored, but `acc-fwu`
 
 ### Cron Job Example
 
-To automatically update your firewall rules every hour:
+To automatically update your firewall rules (and, since v0.3.1, any LKE / LKE-E Control Plane ACLs) every hour:
 
 ```bash
-# Update firewall rules every hour
+# Update firewall rules + LKE ACLs every hour
 0 * * * * /usr/local/bin/acc-fwu --quiet
+
+# Firewall only (skip LKE step)
+0 * * * * /usr/local/bin/acc-fwu --quiet --no-lke
 ```
 
 **Important**: Before using `--quiet` mode, you must have a valid configuration file (`~/.acc-fwu-config`) with your `firewall_id` and `label`. Interactive firewall selection is not available in quiet mode. Run `acc-fwu` interactively first to set up your configuration.

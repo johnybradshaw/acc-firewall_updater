@@ -126,12 +126,14 @@ acc-firewall_updater/
 │   └── acc_fwu/
 │       ├── __init__.py      # Package initializer
 │       ├── cli.py           # CLI entry point
-│       └── firewall.py      # Core firewall logic
+│       ├── firewall.py      # Core firewall logic
+│       └── lke.py           # LKE / LKE-E Control Plane ACL logic
 ├── tests/
 │   ├── test_cli.py          # CLI tests
-│   └── test_firewall.py     # Firewall logic tests
+│   ├── test_firewall.py     # Firewall logic tests
+│   └── test_lke.py          # LKE ACL logic tests
 ├── setup.py                  # Package setup configuration
-├── pyproject.toml            # Build system configuration
+├── pyproject.toml            # Build system configuration (PEP 517 isolation)
 ├── requirements.txt          # Runtime dependencies
 ├── README.md                 # Project documentation
 ├── BUILD.md                  # This file
