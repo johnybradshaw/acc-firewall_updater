@@ -14,7 +14,8 @@ This file provides guidance for AI assistants working with the `acc-fwu` (Akamai
 - Input validation for security
 - Interactive firewall selection (lists available firewalls)
 - Add mode for multiple IP addresses (travel use case)
-- LKE / LKE-E Control Plane ACL automation (`--lke`)
+- LKE / LKE-E Control Plane ACL automation runs by default alongside firewall updates (`--no-lke` to skip, `--lke` for LKE-only mode)
+- Prints the active firewall ID/label when loaded from config so the user sees which firewall is being touched
 
 ## Codebase Structure
 
@@ -68,13 +69,17 @@ python -m build
 ## Key Code Patterns
 
 ### Architecture
-- **`cli.py`**: Handles argument parsing and orchestrates calls to `firewall.py`. Refactored into small helper functions:
+- **`cli.py`**: Handles argument parsing and orchestrates calls to `firewall.py` / `lke.py`. Refactored into small helper functions:
   - `_create_parser()` - Builds the argparse parser
-  - `_handle_list_command(debug)` - Handles `--list` flag
+  - `_print_table(title, headers, rows)` - Renders a table with columns auto-sized to the widest cell (used by both firewall and LKE list commands)
+  - `_handle_list_command(debug)` - Handles `--list` flag for firewalls
+  - `_handle_lke_list_command()` / `_handle_lke_command(args)` - LKE-specific list and update dispatch
   - `_resolve_firewall_config(args)` - Resolves config from args, file, or interactive selection
-  - `_resolve_config_from_args(args)` / `_resolve_config_from_file(label)` / `_resolve_config_interactive(args)` - Config resolution helpers
+  - `_resolve_config_from_args(args)` / `_resolve_config_from_file(label, quiet)` / `_resolve_config_interactive(args)` - Config resolution helpers. `_resolve_config_from_file` prints the active firewall ID/label unless `quiet`.
   - `_execute_firewall_operation(args, firewall_id, label)` - Dispatches update or remove
+  - `main()` - After the firewall operation, calls `update_all_lke_acls(..., implicit=True)` unless `--no-lke` is set
 - **`firewall.py`**: Contains all business logic, API interactions, and validation
+- **`lke.py`**: LKE/LKE-E cluster enumeration and Control Plane ACL mutation
 
 ### Validation Functions (firewall.py)
 All inputs are validated before use:
@@ -254,10 +259,13 @@ The tool uses the Linode API v4:
   cluster uniformly.
 - `put_lke_acl(cluster_id, acl, headers=None, debug=False)` - Wraps the ACL in
   the `{"acl": {...}}` envelope the PUT endpoint expects.
-- `update_all_lke_acls(debug, quiet, dry_run, remove)` - Orchestrator. Iterates
-  clusters and applies `_apply_ip_to_acl` to add/remove the current public IP.
-  Per-cluster fetch/PUT failures are logged and counted (`failed`) but do not
-  abort the batch. Returns `{"changed", "unchanged", "failed", "total"}`.
+- `update_all_lke_acls(debug, quiet, dry_run, remove, implicit=False)` -
+  Orchestrator. Iterates clusters and applies `_apply_ip_to_acl` to add/remove
+  the current public IP. Per-cluster fetch/PUT failures are logged and counted
+  (`failed`) but do not abort the batch. When `implicit=True` (the default
+  firewall+LKE path driven by `main()`), the "No LKE clusters found" notice is
+  suppressed so users without any clusters see no extra output. Returns
+  `{"changed", "unchanged", "failed", "total"}`.
 
 ## File Locations
 
