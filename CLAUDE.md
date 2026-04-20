@@ -101,7 +101,7 @@ Internal helpers (prefixed with `_`):
 - `_no_changes_needed(...)` - Checks if IP already exists in add mode
 - `_print_dry_run_message(...)` / `_print_result_message(...)` - Output helpers
 
-### Important Constants (firewall.py:7-17)
+### Important Constants (firewall.py:8-17)
 ```python
 REQUESTS_TIMEOUT = 5
 CONFIG_FILE_PATH = "~/.acc-fwu-config"
@@ -114,7 +114,7 @@ LABEL_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
 IPV4_PATTERN = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$")
 ```
 
-### Error Handling Pattern (cli.py:133-149)
+### Error Handling Pattern (cli.py:215-223)
 - `ValueError`, `EOFError`, `KeyboardInterrupt` → Error message to stderr, exit code 1
 - `FileNotFoundError` → Handled internally by `_resolve_firewall_config` (triggers interactive selection)
 - General exceptions → "Error" message to stderr (or re-raised in debug mode)
@@ -135,15 +135,25 @@ Tests are organized by class with descriptive names:
 - `TestSelectFirewall` - Interactive firewall selection
 
 **test_cli.py** (CLI integration tests):
-- `TestCliBasicOperations` - Basic CLI operations
+- `TestCliBasicOperations` - Basic CLI operations (including active-firewall-from-config print)
 - `TestCliRemoveOperation` - Remove flag tests
-- `TestCliNewOptions` - Dry-run and quiet mode tests
+- `TestCliNewOptions` - Dry-run, quiet, and debug mode tests
 - `TestCliValidation` - Input validation via CLI
 - `TestCliErrorHandling` - Error handling and debug mode
 - `TestCliVersion` - Version flag tests
 - `TestCliAddFlag` - Add mode (--add flag) tests
 - `TestCliListFlag` - List firewalls (--list flag) tests
 - `TestCliInteractiveSelection` - Interactive selection tests
+- `TestCliLkeFlag` - LKE-only mode (--lke flag) tests
+- `TestCliDefaultLkeBehavior` - Default-on LKE update and --no-lke opt-out
+- `TestCliListTableFormatting` - Dynamic column widths in --list output
+
+**test_lke.py** (unit tests for LKE / LKE-E ACL logic):
+- `TestListLkeClusters` - Paginated cluster listing, LKE-E `tier` detection
+- `TestGetLkeAcl` - ACL fetch normalisation (missing fields, null addresses)
+- `TestPutLkeAcl` - ACL envelope wrapping, error surfacing
+- `TestApplyIpToAcl` - Add/remove idempotency and address-set manipulation
+- `TestUpdateAllLkeAcls` - Orchestrator: per-cluster failure isolation, implicit-mode silence, summary counts
 
 ### Mocking Strategy
 All external dependencies are mocked:
