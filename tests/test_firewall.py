@@ -285,6 +285,23 @@ class TestRemoveFirewallRule:
         captured = capsys.readouterr()
         assert "[DRY RUN]" in captured.out
 
+    def test_remove_firewall_rule_dry_run_respects_quiet(self, monkeypatch, capsys):
+        """--remove --dry-run -q together should produce no output."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "inbound": [{"label": "Test-TCP", "protocol": "TCP"}]
+        }
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock())
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        remove_firewall_rule("12345", "Test", dry_run=True, quiet=True)
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
     def test_remove_firewall_rule_no_matching_rules(self, monkeypatch, capsys):
         """Test when no rules match the label."""
         mock_response = mock.Mock()
@@ -302,10 +319,10 @@ class TestRemoveFirewallRule:
         # PUT should not be called when no rules match
         requests.put.assert_not_called()
         captured = capsys.readouterr()
-        # Standardized output: "<action> on firewall '<label>' (ID: <id>), nothing to remove"
-        assert "No rules labeled 'Test' found" in captured.out
+        # Standardized noop output: "<thing> already absent on <target>, no changes needed"
+        assert "rules labeled 'Test' already absent" in captured.out
         assert "firewall 'Test' (ID: 12345)" in captured.out
-        assert "nothing to remove" in captured.out
+        assert "no changes needed" in captured.out
 
     def test_remove_firewall_rule_no_matching_rules_quiet(self, monkeypatch, capsys):
         """Test quiet mode when no rules match."""
@@ -617,6 +634,39 @@ class TestUpdateFirewallRule:
         captured = capsys.readouterr()
         assert "[DRY RUN]" in captured.out
         assert "add to" in captured.out
+
+    def test_update_firewall_rule_dry_run_respects_quiet(self, monkeypatch, capsys):
+        """--dry-run -q together should produce no output."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {"inbound": []}
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock())
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", dry_run=True, quiet=True)
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_update_firewall_rule_dry_run_prints_preamble(self, monkeypatch, capsys):
+        """Dry-run (non-quiet) should show the preamble matching LKE's behaviour."""
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {"inbound": []}
+        mock_response.raise_for_status = mock.Mock()
+
+        monkeypatch.setattr("acc_fwu.firewall.get_public_ip", mock.Mock(return_value="192.168.1.100"))
+        monkeypatch.setattr(requests, "get", mock.Mock(return_value=mock_response))
+        monkeypatch.setattr(requests, "put", mock.Mock())
+        monkeypatch.setattr("acc_fwu.firewall.get_api_token", mock.Mock(return_value="test-token"))
+
+        update_firewall_rule("12345", "Test", dry_run=True, quiet=False)
+
+        captured = capsys.readouterr()
+        assert "Adding 192.168.1.100/32 on firewall 'Test' (ID: 12345)" in captured.out
+        assert "[DRY RUN]" in captured.out
 
     def test_update_firewall_rule_add_ip_creates_new_rules(self, monkeypatch):
         """Test add_ip mode creates new rules if they don't exist."""

@@ -243,6 +243,19 @@ class TestUpdateAllLkeAcls:
         captured = capsys.readouterr()
         assert "[DRY RUN]" in captured.out
 
+    def test_dry_run_respects_quiet(self, monkeypatch, capsys):
+        """--dry-run with quiet=True should produce no output."""
+        clusters = [{"id": 1, "label": "std", "tier": "standard"}]
+        acls = {1: {"enabled": True, "addresses": {"ipv4": [], "ipv6": []}}}
+        put_mock = self._setup_common(monkeypatch, clusters, acls)
+
+        counts = update_all_lke_acls(dry_run=True, quiet=True)
+
+        put_mock.assert_not_called()
+        assert counts["changed"] == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
     def test_disabled_acl_warning_when_adding(self, monkeypatch, capsys):
         clusters = [{"id": 1, "label": "std", "tier": "standard"}]
         acls = {1: {"enabled": False, "addresses": {"ipv4": [], "ipv6": []}}}

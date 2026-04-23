@@ -371,17 +371,19 @@ def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=F
     if rules_to_remove == 0:
         counts = {"changed": 0, "unchanged": 1, "failed": 0, "total": 1}
         if not quiet:
-            print(f"No rules labeled '{label}' found on {target}, nothing to remove")
+            print(format_noop(f"rules labeled '{label}'", target, remove=True))
             print(format_summary(counts))
         return counts
 
     if dry_run:
         counts = {"changed": 1, "unchanged": 0, "failed": 0, "total": 1}
-        print(
-            f"[DRY RUN] Would remove {rules_to_remove} rule(s) "
-            f"labeled '{label}' from {target}"
-        )
-        print(format_summary(counts))
+        if not quiet:
+            print(format_dry_run(
+                f"{rules_to_remove} rule(s) labeled '{label}'",
+                target,
+                remove=True,
+            ))
+            print(format_summary(counts))
         return counts
 
     # Replace all inbound rules with the filtered list
@@ -399,7 +401,11 @@ def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=F
 
     counts = {"changed": 1, "unchanged": 0, "failed": 0, "total": 1}
     if not quiet:
-        print(f"Removed {rules_to_remove} firewall rule(s) labeled '{label}' from {target}")
+        print(format_result(
+            f"{rules_to_remove} firewall rule(s) labeled '{label}'",
+            target,
+            remove=True,
+        ))
         print(format_summary(counts))
 
     if debug:
@@ -536,7 +542,7 @@ def update_firewall_rule(
     ip_address = get_public_ip()
     ip_with_mask = f"{ip_address}/32"
 
-    if not quiet and not dry_run:
+    if not quiet:
         print(format_preamble(ip_with_mask, target))
 
     # Get existing rules
@@ -557,13 +563,16 @@ def update_firewall_rule(
     )
 
     if dry_run:
-        _print_dry_run_message(add_ip, ip_already_exists, updated_count, created_count, ip_with_mask, target)
         counts = (
             {"changed": 0, "unchanged": 1, "failed": 0, "total": 1}
             if _no_changes_needed(ip_already_exists, add_ip, updated_count, created_count)
             else {"changed": 1, "unchanged": 0, "failed": 0, "total": 1}
         )
-        print(format_summary(counts))
+        if not quiet:
+            _print_dry_run_message(
+                add_ip, ip_already_exists, updated_count, created_count, ip_with_mask, target
+            )
+            print(format_summary(counts))
         return counts
 
     if _no_changes_needed(ip_already_exists, add_ip, updated_count, created_count):

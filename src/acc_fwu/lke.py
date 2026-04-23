@@ -219,7 +219,8 @@ def _process_cluster(cluster, ip_with_mask, remove, debug, quiet, dry_run, heade
         return "unchanged"
 
     if dry_run:
-        print(format_dry_run(ip_with_mask, cluster_label, remove=remove))
+        if not quiet:
+            print(format_dry_run(ip_with_mask, cluster_label, remove=remove))
         return "changed"
 
     _maybe_warn_disabled(acl, cluster_label, remove, quiet)
