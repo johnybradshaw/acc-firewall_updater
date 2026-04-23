@@ -7,6 +7,15 @@ from .firewall import (
     get_api_token,
     get_public_ip,
 )
+from .output import (
+    format_batch_preamble,
+    format_dry_run,
+    format_noop,
+    format_result,
+    format_skip,
+    format_summary,
+    format_target,
+)
 
 LINODE_LKE_BASE_URL = "https://api.linode.com/v4/lke/clusters"
 
@@ -126,8 +135,8 @@ def put_lke_acl(cluster_id, acl, headers=None, debug=False):
 def _format_cluster_label(cluster):
     """Return a human-readable identifier for logging."""
     tier = cluster.get("tier", "standard")
-    tier_label = "LKE-E" if tier == "enterprise" else "LKE"
-    return f"{tier_label} '{cluster.get('label', '')}' (ID: {cluster['id']})"
+    type_name = "LKE-E" if tier == "enterprise" else "LKE"
+    return format_target(type_name, cluster.get("label", ""), cluster["id"])
 
 
 def _apply_ip_to_acl(acl, ip_with_mask, remove):
@@ -166,7 +175,7 @@ def _fetch_acl_safe(cluster, cluster_label, quiet, headers):
         return get_lke_acl(cluster["id"], headers=headers)
     except requests.RequestException as e:
         if not quiet:
-            print(f"Skipping {cluster_label}: failed to fetch ACL ({e})")
+            print(format_skip(cluster_label, f"failed to fetch ACL ({e})"))
         return None
 
 
@@ -177,15 +186,14 @@ def _commit_acl_change(cluster, cluster_label, new_acl, headers, debug, quiet):
         return True
     except requests.RequestException as e:
         if not quiet:
-            print(f"Failed to update {cluster_label}: {e}")
+            print(format_skip(cluster_label, f"failed to update ({e})"))
         return False
 
 
 def _report_unchanged(cluster_label, ip_with_mask, remove, quiet):
     if quiet:
         return
-    action = "absent" if remove else "present"
-    print(f"{cluster_label}: {ip_with_mask} already {action}, no changes needed")
+    print(format_noop(ip_with_mask, cluster_label, remove=remove))
 
 
 def _maybe_warn_disabled(acl, cluster_label, remove, quiet):
@@ -211,8 +219,7 @@ def _process_cluster(cluster, ip_with_mask, remove, debug, quiet, dry_run, heade
         return "unchanged"
 
     if dry_run:
-        verb = "remove" if remove else "add"
-        print(f"[DRY RUN] Would {verb} {ip_with_mask} on {cluster_label}")
+        print(format_dry_run(ip_with_mask, cluster_label, remove=remove))
         return "changed"
 
     _maybe_warn_disabled(acl, cluster_label, remove, quiet)
@@ -221,8 +228,7 @@ def _process_cluster(cluster, ip_with_mask, remove, debug, quiet, dry_run, heade
         return "failed"
 
     if not quiet:
-        past = "Removed" if remove else "Added"
-        print(f"{past} {ip_with_mask} on {cluster_label}")
+        print(format_result(ip_with_mask, cluster_label, remove=remove))
     return "changed"
 
 
@@ -253,8 +259,7 @@ def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False, i
     ip_with_mask = f"{get_public_ip()}/32"
 
     if not quiet:
-        verb = "Removing" if remove else "Adding"
-        print(f"{verb} {ip_with_mask} on Control Plane ACLs for {len(clusters)} cluster(s)...")
+        print(format_batch_preamble(ip_with_mask, "LKE cluster(s)", len(clusters), remove=remove))
 
     counts = {"changed": 0, "unchanged": 0, "failed": 0, "total": len(clusters)}
     for cluster in clusters:
@@ -262,11 +267,6 @@ def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False, i
         counts[result] = counts.get(result, 0) + 1
 
     if not quiet:
-        print(
-            f"Done. changed={counts['changed']} "
-            f"unchanged={counts['unchanged']} "
-            f"failed={counts['failed']} "
-            f"total={counts['total']}"
-        )
+        print(format_summary(counts))
 
     return counts

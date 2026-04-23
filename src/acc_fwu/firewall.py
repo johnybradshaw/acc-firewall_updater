@@ -4,6 +4,16 @@ import stat
 import requests
 import configparser
 
+from .output import (
+    format_dry_run,
+    format_dry_run_noop,
+    format_noop,
+    format_preamble,
+    format_result,
+    format_summary,
+    format_target,
+)
+
 # Constants
 REQUESTS_TIMEOUT = 5  # Request timeout in seconds
 CONFIG_FILE_PATH = os.path.expanduser("~/.acc-fwu-config")  # Configuration file path
@@ -329,6 +339,8 @@ def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=F
     validate_firewall_id(firewall_id)
     validate_label(label)
 
+    target = format_target("firewall", label, firewall_id)
+
     api_token = get_api_token()
     headers = {
         "Authorization": f"Bearer {api_token}",
@@ -357,13 +369,20 @@ def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=F
     rules_to_remove = len(existing_rules) - len(filtered_rules)
 
     if rules_to_remove == 0:
+        counts = {"changed": 0, "unchanged": 1, "failed": 0, "total": 1}
         if not quiet:
-            print(f"No rules found with label '{label}' to remove.")
-        return
+            print(f"No rules labeled '{label}' found on {target}, nothing to remove")
+            print(format_summary(counts))
+        return counts
 
     if dry_run:
-        print(f"[DRY RUN] Would remove {rules_to_remove} rule(s) with label '{label}'")
-        return
+        counts = {"changed": 1, "unchanged": 0, "failed": 0, "total": 1}
+        print(
+            f"[DRY RUN] Would remove {rules_to_remove} rule(s) "
+            f"labeled '{label}' from {target}"
+        )
+        print(format_summary(counts))
+        return counts
 
     # Replace all inbound rules with the filtered list
     response = requests.put(
@@ -378,11 +397,15 @@ def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=F
             print("Response content:", response.content)
         response.raise_for_status()
 
+    counts = {"changed": 1, "unchanged": 0, "failed": 0, "total": 1}
     if not quiet:
-        print(f"Removed {rules_to_remove} firewall rule(s) for {label}")
+        print(f"Removed {rules_to_remove} firewall rule(s) labeled '{label}' from {target}")
+        print(format_summary(counts))
 
     if debug:
         print("Remaining rules data after removal:", filtered_rules)
+
+    return counts
 
 
 def _find_rule_by_label(existing_rules, rule_label):
@@ -455,22 +478,23 @@ def _no_changes_needed(ip_already_exists, add_ip, updated_count, created_count):
     return ip_already_exists and add_ip and updated_count == 0 and created_count == 0
 
 
-def _print_dry_run_message(add_ip, ip_already_exists, updated_count, created_count, ip_with_mask, label):
-    """Print dry-run status message."""
+def _print_dry_run_message(add_ip, ip_already_exists, updated_count, created_count, ip_with_mask, target):
+    """Print dry-run status message in the standard deployment output format."""
     if _no_changes_needed(ip_already_exists, add_ip, updated_count, created_count):
-        print(f"[DRY RUN] IP {ip_with_mask} already exists in rules for {label}, no changes needed")
-    else:
+        print(format_dry_run_noop(ip_with_mask, target))
+        return
+    print(format_dry_run(ip_with_mask, target))
+    if updated_count or created_count:
         mode_str = "add to" if add_ip else "update"
-        print(f"[DRY RUN] Would {mode_str} {updated_count} and create {created_count} "
-              f"rule(s) for {label} with IP {ip_with_mask}")
+        print(
+            f"  (would {mode_str} {updated_count} and create {created_count} "
+            f"protocol rule(s))"
+        )
 
 
-def _print_result_message(add_ip, ip_with_mask, label):
+def _print_result_message(ip_with_mask, target):
     """Print the result message after updating rules."""
-    if add_ip:
-        print(f"Added IP {ip_with_mask} to firewall rules for {label}")
-    else:
-        print(f"Created/updated firewall rules for {label} - [{ip_with_mask}]")
+    print(format_result(ip_with_mask, target))
 
 
 def update_firewall_rule(
@@ -504,11 +528,16 @@ def update_firewall_rule(
     validate_firewall_id(firewall_id)
     validate_label(label)
 
+    target = format_target("firewall", label, firewall_id)
+
     api_token = get_api_token()
     headers = {"Authorization": f"Bearer {api_token}", "Content-Type": CONTENT_TYPE_JSON}
 
     ip_address = get_public_ip()
     ip_with_mask = f"{ip_address}/32"
+
+    if not quiet and not dry_run:
+        print(format_preamble(ip_with_mask, target))
 
     # Get existing rules
     response = requests.get(
@@ -528,13 +557,21 @@ def update_firewall_rule(
     )
 
     if dry_run:
-        _print_dry_run_message(add_ip, ip_already_exists, updated_count, created_count, ip_with_mask, label)
-        return
+        _print_dry_run_message(add_ip, ip_already_exists, updated_count, created_count, ip_with_mask, target)
+        counts = (
+            {"changed": 0, "unchanged": 1, "failed": 0, "total": 1}
+            if _no_changes_needed(ip_already_exists, add_ip, updated_count, created_count)
+            else {"changed": 1, "unchanged": 0, "failed": 0, "total": 1}
+        )
+        print(format_summary(counts))
+        return counts
 
     if _no_changes_needed(ip_already_exists, add_ip, updated_count, created_count):
+        counts = {"changed": 0, "unchanged": 1, "failed": 0, "total": 1}
         if not quiet:
-            print(f"IP {ip_with_mask} already exists in rules for {label}, no changes needed")
-        return
+            print(format_noop(ip_with_mask, target))
+            print(format_summary(counts))
+        return counts
 
     # Combine existing rules with the new rules
     combined_rules = existing_rules + new_rules
@@ -552,5 +589,8 @@ def update_firewall_rule(
             print("Response content:", response.content)
         response.raise_for_status()
 
+    counts = {"changed": 1, "unchanged": 0, "failed": 0, "total": 1}
     if not quiet:
-        _print_result_message(add_ip, ip_with_mask, label)
+        _print_result_message(ip_with_mask, target)
+        print(format_summary(counts))
+    return counts

@@ -302,7 +302,10 @@ class TestRemoveFirewallRule:
         # PUT should not be called when no rules match
         requests.put.assert_not_called()
         captured = capsys.readouterr()
-        assert "No rules found" in captured.out
+        # Standardized output: "<action> on firewall '<label>' (ID: <id>), nothing to remove"
+        assert "No rules labeled 'Test' found" in captured.out
+        assert "firewall 'Test' (ID: 12345)" in captured.out
+        assert "nothing to remove" in captured.out
 
     def test_remove_firewall_rule_no_matching_rules_quiet(self, monkeypatch, capsys):
         """Test quiet mode when no rules match."""
@@ -443,8 +446,9 @@ class TestUpdateFirewallRule:
         update_firewall_rule("12345", "Test", quiet=False)
 
         captured = capsys.readouterr()
-        assert "Created/updated firewall rules" in captured.out
-        assert "192.168.1.100/32" in captured.out
+        # Standardized output: "Added <ip> on firewall '<label>' (ID: <id>)"
+        assert "Added 192.168.1.100/32 on firewall 'Test' (ID: 12345)" in captured.out
+        assert "Done." in captured.out
 
     def test_update_firewall_rule_dry_run(self, monkeypatch, capsys):
         """Test that dry_run shows what would be done without making changes."""
@@ -588,7 +592,9 @@ class TestUpdateFirewallRule:
         # PUT should not be called when IP already exists
         requests.put.assert_not_called()
         captured = capsys.readouterr()
-        assert "already exists" in captured.out
+        # Standardized output: "<ip> already present on <target>, no changes needed"
+        assert "already present" in captured.out
+        assert "no changes needed" in captured.out
 
     def test_update_firewall_rule_add_ip_dry_run(self, monkeypatch, capsys):
         """Test add_ip mode with dry_run."""

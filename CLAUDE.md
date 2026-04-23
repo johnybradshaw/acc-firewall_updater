@@ -31,11 +31,13 @@ acc-firewall_updater/
 │   ├── __init__.py        # Empty package initializer
 │   ├── cli.py             # CLI entry point (argparse, main function)
 │   ├── firewall.py        # Core business logic (API calls, validation)
-│   └── lke.py             # LKE/LKE-E Control Plane ACL automation
+│   ├── lke.py             # LKE/LKE-E Control Plane ACL automation
+│   └── output.py          # Shared output formatters used by every deployment type
 ├── tests/                 # Test suite
 │   ├── test_cli.py        # CLI integration tests
 │   ├── test_firewall.py   # Unit tests for firewall logic
-│   └── test_lke.py        # Unit tests for LKE ACL logic
+│   ├── test_lke.py        # Unit tests for LKE ACL logic
+│   └── test_output.py     # Unit tests for the shared output module
 ├── setup.py               # Package configuration (uses setuptools_scm)
 ├── pyproject.toml         # Build system config
 ├── requirements.txt       # Runtime dependencies
@@ -80,6 +82,7 @@ python -m build
   - `main()` - After the firewall operation, calls `update_all_lke_acls(..., implicit=True)` unless `--no-lke` is set
 - **`firewall.py`**: Contains all business logic, API interactions, and validation
 - **`lke.py`**: LKE/LKE-E cluster enumeration and Control Plane ACL mutation
+- **`output.py`**: Shared formatters that every deployment type (firewall, LKE, any future type such as databases) uses so their output looks identical — target identifier: `<type> '<label>' (ID: <id>)`; lifecycle lines: preamble, result, noop, dry-run, skip, summary
 
 ### Validation Functions (firewall.py)
 All inputs are validated before use:
