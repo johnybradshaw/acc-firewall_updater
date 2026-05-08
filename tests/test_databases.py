@@ -270,6 +270,60 @@ class TestUpdateAllDatabaseAcls:
         captured = capsys.readouterr()
         assert captured.out == ""
 
+    def test_vpc_attached_database_is_skipped(self, monkeypatch, capsys):
+        """Databases with a non-null private_network are skipped (regardless of engine)."""
+        databases = [
+            {"id": 1, "label": "vpc-mysql", "engine": "mysql",
+             "allow_list": [], "private_network": {"vpc_id": 42, "subnet_id": 7},
+             "vpc_id": 42, "public_access": False},
+            {"id": 2, "label": "vpc-pg", "engine": "postgresql",
+             "allow_list": [], "private_network": {"vpc_id": 99, "subnet_id": 3},
+             "vpc_id": 99, "public_access": True},
+            {"id": 3, "label": "public-mysql", "engine": "mysql",
+             "allow_list": [], "private_network": None},
+        ]
+        put_mock = self._setup_common(monkeypatch, databases)
+
+        counts = update_all_database_acls(quiet=False)
+
+        assert counts["changed"] == 1
+        assert counts["failed"] == 2
+        # Only the non-VPC database is updated
+        put_mock.assert_called_once()
+        assert put_mock.call_args[0][0] == 3
+        captured = capsys.readouterr()
+        assert "attached to VPC" in captured.out
+        assert "vpc_id=42" in captured.out
+        assert "vpc_id=99" in captured.out
+
+    def test_vpc_skip_respects_quiet(self, monkeypatch, capsys):
+        databases = [
+            {"id": 1, "label": "vpc-db", "engine": "mysql",
+             "allow_list": [], "private_network": {"vpc_id": 1}},
+        ]
+        put_mock = self._setup_common(monkeypatch, databases)
+
+        counts = update_all_database_acls(quiet=True)
+
+        assert counts["failed"] == 1
+        put_mock.assert_not_called()
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_missing_private_network_field_treated_as_non_vpc(self, monkeypatch):
+        """Older API responses without the private_network field should not be
+        misclassified as VPC-attached."""
+        databases = [
+            {"id": 1, "label": "primary", "engine": "mysql", "allow_list": []},
+        ]
+        put_mock = self._setup_common(monkeypatch, databases)
+
+        counts = update_all_database_acls(quiet=True)
+
+        assert counts["changed"] == 1
+        assert counts["failed"] == 0
+        put_mock.assert_called_once()
+
     def test_unsupported_engine_is_failed(self, monkeypatch, capsys):
         databases = [
             {"id": 1, "label": "redis", "engine": "redis", "allow_list": []},

@@ -311,8 +311,12 @@ The tool uses the Linode API v4:
   list (does not mutate the input) plus `(changed, already_in_state)` flags.
 - `update_all_database_acls(debug, quiet, dry_run, remove, implicit=False)` -
   Orchestrator. Iterates databases and applies `_apply_ip_to_allow_list` to
-  add/remove the current public IP. Per-database PUT failures and unsupported
-  engines are logged and counted (`failed`) but do not abort the batch. When
+  add/remove the current public IP. Per-database PUT failures, unsupported
+  engines, and **VPC-attached databases** (`private_network` is non-null) are
+  logged and counted (`failed`) but do not abort the batch. We skip VPC-attached
+  databases because the public IP we detect from ipify cannot reach a VPC-only
+  endpoint — even with `public_access=true`, allow_list still gates external
+  connections, but they will not originate from the user's public IP. When
   `implicit=True` (the default firewall+LKE+database path driven by `main()`),
   the "No managed databases found" notice is suppressed so users without any
   databases see no extra output. Returns

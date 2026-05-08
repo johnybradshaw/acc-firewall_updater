@@ -75,6 +75,13 @@ def list_databases():
             "status": db.get("status", "unknown"),
             "platform": db.get("platform", ""),
             "allow_list": list(db.get("allow_list") or []),
+            # VPC attachment surface. ``private_network`` is the authoritative
+            # signal per the Linode API: it is null when no VPC is configured,
+            # otherwise an object describing the VPC binding. We also retain
+            # ``vpc_id`` and ``public_access`` for diagnostics/messages.
+            "private_network": db.get("private_network"),
+            "vpc_id": db.get("vpc_id"),
+            "public_access": db.get("public_access"),
         }
         for db in databases
     ]
@@ -110,7 +117,7 @@ def put_database_allow_list(database_id, engine, allow_list, headers=None, debug
 
 def _format_database_label(database):
     """Return a human-readable identifier for logging."""
-    engine = database.get("engine", "") or "database"
+    engine = database.get("engine")
     type_name = f"{engine} database" if engine else "database"
     return format_target(type_name, database.get("label", ""), database["id"])
 
@@ -163,14 +170,39 @@ def _report_unchanged(db_label, ip_with_mask, remove, quiet):
     print(format_noop(ip_with_mask, db_label, remove=remove))
 
 
+def _check_skip_reason(database, db_label, quiet):
+    """Return a skip reason string if the database should be skipped, else None.
+
+    Per the Linode API, ``private_network`` is null when no VPC is configured
+    and an object describing the VPC binding otherwise. We deliberately skip
+    VPC-attached databases — even though allow_list is technically still
+    honoured when ``public_access`` is true, the public IP we detect from
+    ipify cannot reach a VPC-only endpoint, and updating these silently
+    would mislead the user about which databases are actually reachable.
+    """
+    engine = database.get("engine", "")
+    if engine not in SUPPORTED_DB_ENGINES:
+        return f"unsupported engine '{engine}'"
+
+    if database.get("private_network") is not None:
+        vpc_id = database.get("vpc_id")
+        return (
+            f"attached to VPC (vpc_id={vpc_id}); allow_list update skipped"
+            if vpc_id is not None
+            else "attached to VPC; allow_list update skipped"
+        )
+
+    return None
+
+
 def _process_database(database, ip_with_mask, remove, debug, quiet, dry_run, headers):
     """Apply the IP change to a single database's allow_list."""
     db_label = _format_database_label(database)
 
-    engine = database.get("engine", "")
-    if engine not in SUPPORTED_DB_ENGINES:
+    skip_reason = _check_skip_reason(database, db_label, quiet)
+    if skip_reason is not None:
         if not quiet:
-            print(format_skip(db_label, f"unsupported engine '{engine}'"))
+            print(format_skip(db_label, skip_reason))
         return "failed"
 
     allow_list = database.get("allow_list", [])

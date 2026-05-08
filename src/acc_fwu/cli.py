@@ -188,17 +188,17 @@ def _create_parser():
                         help="List available firewalls (or LKE clusters with --lke, "
                              "or managed databases with --database) and exit.")
     parser.add_argument("--lke", action="store_true",
-                        help="Target LKE/LKE-E Control Plane ACLs only; skip firewall rules. "
+                        help="Target LKE/LKE-E Control Plane ACLs; skip firewall rules. "
                              "Adds (or removes with -r) your current public IP to every "
-                             "cluster's ACL.")
+                             "cluster's ACL. Combinable with --database.")
     parser.add_argument("--no-lke", action="store_true",
                         help="Skip the default LKE/LKE-E Control Plane ACL update. "
                              "By default, acc-fwu updates firewall rules, LKE ACLs, "
                              "and managed database allow_lists.")
     parser.add_argument("--database", action="store_true",
-                        help="Target managed database allow_lists only; skip firewall rules. "
+                        help="Target managed database allow_lists; skip firewall rules. "
                              "Adds (or removes with -r) your current public IP to every "
-                             "managed database's allow_list.")
+                             "managed database's allow_list. Combinable with --lke.")
     parser.add_argument("--no-database", action="store_true",
                         help="Skip the default managed database allow_list update. "
                              "By default, acc-fwu updates firewall rules, LKE ACLs, "
@@ -257,12 +257,14 @@ def main():
     args = parser.parse_args()
 
     try:
-        if args.lke:
-            _handle_lke_command(args)
-            return
-
-        if args.database:
-            _handle_database_command(args)
+        if args.lke or args.database:
+            # Explicit selectors: skip the firewall path and run whichever
+            # resource types were requested. Combining --lke and --database is
+            # supported and runs both in sequence.
+            if args.lke:
+                _handle_lke_command(args)
+            if args.database:
+                _handle_database_command(args)
             return
 
         if args.list:

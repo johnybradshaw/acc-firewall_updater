@@ -578,6 +578,43 @@ class TestCliLkeFlag:
         mock_load.assert_not_called()
 
 
+class TestCliCombinedSelectors:
+    """Tests for combining --lke and --database selectors in the same run."""
+
+    def test_lke_and_database_run_both_skip_firewall(self, monkeypatch):
+        """--lke --database should run both batch updates and skip the firewall path."""
+        mock_lke = mock.MagicMock()
+        mock_db = mock.MagicMock()
+        mock_update_fw = mock.MagicMock()
+        mock_load = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_lke)
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_db)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_fw)
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke", "--database"])
+
+        main()
+
+        mock_lke.assert_called_once()
+        mock_db.assert_called_once()
+        mock_update_fw.assert_not_called()
+        mock_load.assert_not_called()
+
+    def test_lke_and_database_with_remove(self, monkeypatch):
+        """-r propagates to both selectors when combined."""
+        mock_lke = mock.MagicMock()
+        mock_db = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_lke)
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_db)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke", "--database", "-r"])
+
+        main()
+
+        assert mock_lke.call_args[1]["remove"] is True
+        assert mock_db.call_args[1]["remove"] is True
+
+
 class TestCliDefaultLkeBehavior:
     """Tests for the default-on LKE update that runs alongside firewall updates."""
 
