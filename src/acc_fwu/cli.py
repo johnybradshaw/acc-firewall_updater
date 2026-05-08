@@ -12,6 +12,7 @@ from .firewall import (
     select_firewall,
 )
 from .lke import list_lke_clusters, update_all_lke_acls
+from .output import format_target
 
 # Version is set dynamically by setuptools_scm, fallback for development
 try:
@@ -95,8 +96,8 @@ def _resolve_config_from_file(args_label, quiet=False):
     if label is None:
         label = args_label
     if not quiet:
-        print(f"Using saved firewall: ID {firewall_id}, label '{label}' "
-              f"(from {CONFIG_FILE_PATH})")
+        target = format_target("firewall", label, firewall_id)
+        print(f"Using saved {target} (from {CONFIG_FILE_PATH})")
     return firewall_id, label
 
 
