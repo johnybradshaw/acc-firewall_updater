@@ -1,3 +1,4 @@
+import functools
 import os
 import re
 import stat
@@ -195,12 +196,14 @@ def get_api_token():
     return api_token
 
 
+@functools.lru_cache(maxsize=1)
 def get_public_ip():
     """
     Get the public IP address of the machine running this script.
 
-    This function makes an HTTP request to the 'api.ipify.org' service to
-    get the public IP address of the machine.
+    Cached for the lifetime of the process so a single ``acc-fwu`` invocation
+    only makes one request to ``api.ipify.org`` regardless of how many
+    deployment types (firewall, LKE, database) consume it.
 
     Returns:
         str: The public IP address of the machine.

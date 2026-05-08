@@ -21,7 +21,7 @@ class TestCliBasicOperations:
 
         monkeypatch.setattr(
             sys, 'argv',
-            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '--no-lke'],
+            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '--no-lke', '--no-database'],
         )
 
         main()
@@ -39,7 +39,7 @@ class TestCliBasicOperations:
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke', '--no-database'])
 
         main()
 
@@ -53,7 +53,7 @@ class TestCliBasicOperations:
         mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke', '--no-database'])
 
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -69,7 +69,7 @@ class TestCliBasicOperations:
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke', '--no-database'])
 
         main()
 
@@ -86,7 +86,7 @@ class TestCliBasicOperations:
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke', '--no-database'])
 
         main()
 
@@ -102,7 +102,7 @@ class TestCliBasicOperations:
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke', '-q'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke', '--no-database', '-q'])
 
         main()
 
@@ -127,7 +127,7 @@ class TestCliRemoveOperation:
 
         monkeypatch.setattr(
             sys, 'argv',
-            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '-r', '--no-lke'],
+            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '-r', '--no-lke', '--no-database'],
         )
 
         main()
@@ -155,7 +155,7 @@ class TestCliNewOptions:
 
         monkeypatch.setattr(
             sys, 'argv',
-            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '-q', '--no-lke'],
+            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '-q', '--no-lke', '--no-database'],
         )
 
         main()
@@ -179,7 +179,7 @@ class TestCliNewOptions:
 
         monkeypatch.setattr(
             sys, 'argv',
-            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '--dry-run', '--no-lke'],
+            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test-Label', '--dry-run', '--no-lke', '--no-database'],
         )
 
         main()
@@ -202,7 +202,7 @@ class TestCliNewOptions:
         monkeypatch.setattr("acc_fwu.cli.validate_firewall_id", mock_validate_firewall_id)
         monkeypatch.setattr("acc_fwu.cli.validate_label", mock_validate_label)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--firewall_id', '12345', '-d', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--firewall_id', '12345', '-d', '--no-lke', '--no-database'])
 
         main()
 
@@ -215,7 +215,7 @@ class TestCliNewOptions:
         mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '-q', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '-q', '--no-lke', '--no-database'])
 
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -262,7 +262,7 @@ class TestCliErrorHandling:
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke', '--no-database'])
 
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -280,7 +280,7 @@ class TestCliErrorHandling:
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke', '--no-database'])
 
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -299,7 +299,7 @@ class TestCliErrorHandling:
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--debug', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--debug', '--no-lke', '--no-database'])
 
         # With --debug, the exception should be re-raised, not caught
         with pytest.raises(RuntimeError, match="Unexpected error"):
@@ -340,7 +340,7 @@ class TestCliAddFlag:
 
         monkeypatch.setattr(
             sys, 'argv',
-            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test', '-a', '--no-lke'],
+            ['acc-fwu', '--firewall_id', '12345', '--label', 'Test', '-a', '--no-lke', '--no-database'],
         )
 
         main()
@@ -357,7 +357,7 @@ class TestCliAddFlag:
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--add', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--add', '--no-lke', '--no-database'])
 
         main()
 
@@ -431,7 +431,7 @@ class TestCliInteractiveSelection:
         monkeypatch.setattr("acc_fwu.cli.save_config", mock_save_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke', '--no-database'])
 
         main()
 
@@ -453,7 +453,7 @@ class TestCliInteractiveSelection:
         monkeypatch.setattr("acc_fwu.cli.save_config", mock_save_config)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_firewall_rule)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--dry-run', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--dry-run', '--no-lke', '--no-database'])
 
         main()
 
@@ -471,7 +471,7 @@ class TestCliInteractiveSelection:
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
         monkeypatch.setattr("acc_fwu.cli.select_firewall", mock_select_firewall)
 
-        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke'])
+        monkeypatch.setattr(sys, 'argv', ['acc-fwu', '--no-lke', '--no-database'])
 
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -578,6 +578,43 @@ class TestCliLkeFlag:
         mock_load.assert_not_called()
 
 
+class TestCliCombinedSelectors:
+    """Tests for combining --lke and --database selectors in the same run."""
+
+    def test_lke_and_database_run_both_skip_firewall(self, monkeypatch):
+        """--lke --database should run both batch updates and skip the firewall path."""
+        mock_lke = mock.MagicMock()
+        mock_db = mock.MagicMock()
+        mock_update_fw = mock.MagicMock()
+        mock_load = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_lke)
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_db)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_fw)
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke", "--database"])
+
+        main()
+
+        mock_lke.assert_called_once()
+        mock_db.assert_called_once()
+        mock_update_fw.assert_not_called()
+        mock_load.assert_not_called()
+
+    def test_lke_and_database_with_remove(self, monkeypatch):
+        """-r propagates to both selectors when combined."""
+        mock_lke = mock.MagicMock()
+        mock_db = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_lke)
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_db)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke", "--database", "-r"])
+
+        main()
+
+        assert mock_lke.call_args[1]["remove"] is True
+        assert mock_db.call_args[1]["remove"] is True
+
+
 class TestCliDefaultLkeBehavior:
     """Tests for the default-on LKE update that runs alongside firewall updates."""
 
@@ -586,11 +623,13 @@ class TestCliDefaultLkeBehavior:
         mock_load = mock.MagicMock(return_value=("12345", "Label"))
         mock_update_fw = mock.MagicMock()
         mock_update_lke = mock.MagicMock()
+        mock_update_db = mock.MagicMock()
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_fw)
         monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update_lke)
-        monkeypatch.setattr(sys, "argv", ["acc-fwu"])
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update_db)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--no-database"])
 
         main()
 
@@ -604,11 +643,13 @@ class TestCliDefaultLkeBehavior:
         mock_load = mock.MagicMock(return_value=("12345", "Label"))
         mock_update_fw = mock.MagicMock()
         mock_update_lke = mock.MagicMock()
+        mock_update_db = mock.MagicMock()
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
         monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_fw)
         monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update_lke)
-        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--no-lke"])
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update_db)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--no-lke", "--no-database"])
 
         main()
 
@@ -620,11 +661,13 @@ class TestCliDefaultLkeBehavior:
         mock_load = mock.MagicMock(return_value=("12345", "Label"))
         mock_remove_fw = mock.MagicMock()
         mock_update_lke = mock.MagicMock()
+        mock_update_db = mock.MagicMock()
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
         monkeypatch.setattr("acc_fwu.cli.remove_firewall_rule", mock_remove_fw)
         monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update_lke)
-        monkeypatch.setattr(sys, "argv", ["acc-fwu", "-r"])
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update_db)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "-r", "--no-database"])
 
         main()
 
@@ -632,6 +675,157 @@ class TestCliDefaultLkeBehavior:
         mock_update_lke.assert_called_once_with(
             debug=False, quiet=False, dry_run=False, remove=True, implicit=True,
         )
+
+
+class TestCliDefaultDatabaseBehavior:
+    """Tests for the default-on managed database update that runs alongside firewall updates."""
+
+    def test_firewall_run_also_updates_databases_by_default(self, monkeypatch):
+        """Without --database/--no-database, a firewall update also calls update_all_database_acls."""
+        mock_load = mock.MagicMock(return_value=("12345", "Label"))
+        mock_update_fw = mock.MagicMock()
+        mock_update_lke = mock.MagicMock()
+        mock_update_db = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_fw)
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update_lke)
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update_db)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--no-lke"])
+
+        main()
+
+        mock_update_fw.assert_called_once()
+        mock_update_db.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, implicit=True,
+        )
+
+    def test_no_database_flag_skips_database_update(self, monkeypatch):
+        """--no-database should skip the implicit managed database allow_list update."""
+        mock_load = mock.MagicMock(return_value=("12345", "Label"))
+        mock_update_fw = mock.MagicMock()
+        mock_update_lke = mock.MagicMock()
+        mock_update_db = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_fw)
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update_lke)
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update_db)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--no-lke", "--no-database"])
+
+        main()
+
+        mock_update_fw.assert_called_once()
+        mock_update_db.assert_not_called()
+
+    def test_remove_flag_propagates_to_implicit_database_update(self, monkeypatch):
+        """acc-fwu -r should remove IP from managed databases by default."""
+        mock_load = mock.MagicMock(return_value=("12345", "Label"))
+        mock_remove_fw = mock.MagicMock()
+        mock_update_lke = mock.MagicMock()
+        mock_update_db = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
+        monkeypatch.setattr("acc_fwu.cli.remove_firewall_rule", mock_remove_fw)
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update_lke)
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update_db)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "-r", "--no-lke"])
+
+        main()
+
+        mock_remove_fw.assert_called_once()
+        mock_update_db.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=True, implicit=True,
+        )
+
+
+class TestCliDatabaseFlag:
+    """Tests for the --database flag (managed database allow_list automation)."""
+
+    def test_database_flag_dispatches_to_update_all_database_acls(self, monkeypatch):
+        """Test --database dispatches to update_all_database_acls and skips firewall ops."""
+        mock_update = mock.MagicMock()
+        mock_update_fw = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_fw)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--database"])
+
+        main()
+
+        mock_update.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False,
+        )
+        mock_update_fw.assert_not_called()
+
+    def test_database_with_remove_flag(self, monkeypatch):
+        """Test --database -r passes remove=True."""
+        mock_update = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--database", "-r"])
+
+        main()
+
+        mock_update.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=True,
+        )
+
+    def test_database_dry_run_quiet(self, monkeypatch):
+        """Test --database honors --dry-run and --quiet."""
+        mock_update = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--database", "--dry-run", "-q"])
+
+        main()
+
+        mock_update.assert_called_once_with(
+            debug=False, quiet=True, dry_run=True, remove=False,
+        )
+
+    def test_database_list_shows_databases_and_exits(self, monkeypatch, capsys):
+        """Test --database --list shows managed databases and exits without touching allow_lists."""
+        mock_list = mock.MagicMock(return_value=[
+            {"id": 11, "label": "primary", "region": "us-east", "engine": "mysql",
+             "version": "8.0.30", "status": "active"},
+            {"id": 12, "label": "analytics", "region": "eu-west", "engine": "postgresql",
+             "version": "15", "status": "active"},
+        ])
+        mock_update = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.list_databases", mock_list)
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--database", "--list"])
+
+        main()
+
+        mock_update.assert_not_called()
+        captured = capsys.readouterr()
+        assert "primary" in captured.out
+        assert "analytics" in captured.out
+        assert "mysql" in captured.out
+        assert "postgresql" in captured.out
+
+    def test_database_list_no_databases(self, monkeypatch, capsys):
+        """Test --database --list when no databases exist."""
+        mock_list = mock.MagicMock(return_value=[])
+        monkeypatch.setattr("acc_fwu.cli.list_databases", mock_list)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--database", "--list"])
+
+        main()
+
+        captured = capsys.readouterr()
+        assert "No managed databases found" in captured.out
+
+    def test_database_skips_firewall_resolution(self, monkeypatch):
+        """Test that --database skips firewall config resolution entirely."""
+        mock_update = mock.MagicMock()
+        mock_load_config = mock.MagicMock(side_effect=AssertionError("must not be called"))
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update)
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--database"])
+
+        main()
+
+        mock_update.assert_called_once()
 
 
 class TestCliListTableFormatting:

@@ -15,6 +15,7 @@ This file provides guidance for AI assistants working with the `acc-fwu` (Akamai
 - Interactive firewall selection (lists available firewalls)
 - Add mode for multiple IP addresses (travel use case)
 - LKE / LKE-E Control Plane ACL automation runs by default alongside firewall updates (`--no-lke` to skip, `--lke` for LKE-only mode)
+- Managed Database (MySQL/PostgreSQL) `allow_list` automation runs by default alongside firewall updates (`--no-database` to skip, `--database` for database-only mode)
 - Prints the active firewall ID/label when loaded from config so the user sees which firewall is being touched
 
 ## Codebase Structure
@@ -32,11 +33,13 @@ acc-firewall_updater/
 │   ├── cli.py             # CLI entry point (argparse, main function)
 │   ├── firewall.py        # Core business logic (API calls, validation)
 │   ├── lke.py             # LKE/LKE-E Control Plane ACL automation
+│   ├── databases.py       # Managed Database (MySQL/PostgreSQL) allow_list automation
 │   └── output.py          # Shared output formatters used by every deployment type
 ├── tests/                 # Test suite
 │   ├── test_cli.py        # CLI integration tests
 │   ├── test_firewall.py   # Unit tests for firewall logic
 │   ├── test_lke.py        # Unit tests for LKE ACL logic
+│   ├── test_databases.py  # Unit tests for managed database allow_list logic
 │   └── test_output.py     # Unit tests for the shared output module
 ├── setup.py               # Package configuration (uses setuptools_scm)
 ├── pyproject.toml         # Build system config
@@ -71,18 +74,21 @@ python -m build
 ## Key Code Patterns
 
 ### Architecture
-- **`cli.py`**: Handles argument parsing and orchestrates calls to `firewall.py` / `lke.py`. Refactored into small helper functions:
+- **`cli.py`**: Handles argument parsing and orchestrates calls to `firewall.py` / `lke.py` / `databases.py`. Refactored into small helper functions:
   - `_create_parser()` - Builds the argparse parser
-  - `_print_table(title, headers, rows)` - Renders a table with columns auto-sized to the widest cell (used by both firewall and LKE list commands)
+  - `_print_table(title, headers, rows)` - Renders a table with columns auto-sized to the widest cell (used by firewall, LKE, and database list commands)
   - `_handle_list_command(debug)` - Handles `--list` flag for firewalls
   - `_handle_lke_list_command()` / `_handle_lke_command(args)` - LKE-specific list and update dispatch
+  - `_handle_database_list_command()` / `_handle_database_command(args)` - Managed-database list and update dispatch
   - `_resolve_firewall_config(args)` - Resolves config from args, file, or interactive selection
   - `_resolve_config_from_args(args)` / `_resolve_config_from_file(label, quiet)` / `_resolve_config_interactive(args)` - Config resolution helpers. `_resolve_config_from_file` prints the active firewall ID/label unless `quiet`.
   - `_execute_firewall_operation(args, firewall_id, label)` - Dispatches update or remove
-  - `main()` - After the firewall operation, calls `update_all_lke_acls(..., implicit=True)` unless `--no-lke` is set
+  - `_run_implicit_batch_updates(args)` - After the firewall op, calls `update_all_lke_acls(..., implicit=True)` unless `--no-lke`, then `update_all_database_acls(..., implicit=True)` unless `--no-database`
+  - `main()` - Top-level dispatcher
 - **`firewall.py`**: Contains all business logic, API interactions, and validation
 - **`lke.py`**: LKE/LKE-E cluster enumeration and Control Plane ACL mutation
-- **`output.py`**: Shared formatters that every deployment type (firewall, LKE, any future type such as databases) uses so their output looks identical — target identifier: `<type> '<label>' (ID: <id>)`; lifecycle lines: preamble, result, noop, dry-run, skip, summary
+- **`databases.py`**: Managed Database (MySQL/PostgreSQL) enumeration and `allow_list` mutation
+- **`output.py`**: Shared formatters that every deployment type (firewall, LKE, databases, any future type) uses so their output looks identical — target identifier: `<type> '<label>' (ID: <id>)`; lifecycle lines: preamble, result, noop, dry-run, skip, summary
 
 ### Validation Functions (firewall.py)
 All inputs are validated before use:
@@ -149,6 +155,8 @@ Tests are organized by class with descriptive names:
 - `TestCliInteractiveSelection` - Interactive selection tests
 - `TestCliLkeFlag` - LKE-only mode (--lke flag) tests
 - `TestCliDefaultLkeBehavior` - Default-on LKE update and --no-lke opt-out
+- `TestCliDatabaseFlag` - Database-only mode (--database flag) tests
+- `TestCliDefaultDatabaseBehavior` - Default-on database update and --no-database opt-out
 - `TestCliListTableFormatting` - Dynamic column widths in --list output
 
 **test_lke.py** (unit tests for LKE / LKE-E ACL logic):
@@ -157,6 +165,12 @@ Tests are organized by class with descriptive names:
 - `TestPutLkeAcl` - ACL envelope wrapping, error surfacing
 - `TestApplyIpToAcl` - Add/remove idempotency and address-set manipulation
 - `TestUpdateAllLkeAcls` - Orchestrator: per-cluster failure isolation, implicit-mode silence, summary counts
+
+**test_databases.py** (unit tests for managed database `allow_list` logic):
+- `TestListDatabases` - Paginated listing across engines, `allow_list` and `engine` fields
+- `TestPutDatabaseAllowList` - Engine-specific URL routing (`mysql`/`postgresql`), error surfacing
+- `TestApplyIpToAllowList` - Add/remove idempotency, no in-place mutation
+- `TestUpdateAllDatabaseAcls` - Orchestrator: per-database failure isolation, unsupported-engine skip, implicit-mode silence, summary counts
 
 ### Mocking Strategy
 All external dependencies are mocked:
@@ -260,8 +274,10 @@ The tool uses the Linode API v4:
   - `/networking/firewalls/{firewall_id}/rules` - Manage rules (GET/PUT)
   - `/lke/clusters` - List all LKE and LKE-E clusters (GET, paginated)
   - `/lke/clusters/{cluster_id}/control_plane_acl` - Manage Control Plane ACL (GET/PUT)
+  - `/databases/instances` - List all managed databases regardless of engine (GET, paginated)
+  - `/databases/{engine}/instances/{database_id}` - Update database `allow_list` (PUT); `engine` is `mysql` or `postgresql`
 - Authentication: Bearer token from Linode CLI config
-- Methods: GET (fetch firewalls/rules/clusters/ACL), PUT (update rules, update ACL)
+- Methods: GET (fetch firewalls/rules/clusters/ACL/databases), PUT (update rules, update ACL, update allow_list)
 
 ### LKE Module (`lke.py`)
 
@@ -278,6 +294,32 @@ The tool uses the Linode API v4:
   (`failed`) but do not abort the batch. When `implicit=True` (the default
   firewall+LKE path driven by `main()`), the "No LKE clusters found" notice is
   suppressed so users without any clusters see no extra output. Returns
+  `{"changed", "unchanged", "failed", "total"}`.
+
+### Databases Module (`databases.py`)
+
+- `SUPPORTED_DB_ENGINES = ("mysql", "postgresql")` - engines whose `allow_list`
+  this tool knows how to update; other engines surfaced by the listing endpoint
+  are reported as a per-database `failed` skip.
+- `list_databases()` - Paginated list of every managed database on the account
+  via `/databases/instances`. The list response already contains `allow_list`,
+  so the orchestrator does not need a per-database GET.
+- `put_database_allow_list(database_id, engine, allow_list, headers=None,
+  debug=False)` - PUTs to `/databases/{engine}/instances/{database_id}` with the
+  `{"allow_list": [...]}` body. The new list overwrites the existing one.
+- `_apply_ip_to_allow_list(allow_list, ip_with_mask, remove)` - Returns a fresh
+  list (does not mutate the input) plus `(changed, already_in_state)` flags.
+- `update_all_database_acls(debug, quiet, dry_run, remove, implicit=False)` -
+  Orchestrator. Iterates databases and applies `_apply_ip_to_allow_list` to
+  add/remove the current public IP. Per-database PUT failures, unsupported
+  engines, and **VPC-attached databases** (`private_network` is non-null) are
+  logged and counted (`failed`) but do not abort the batch. We skip VPC-attached
+  databases because the public IP we detect from ipify cannot reach a VPC-only
+  endpoint — even with `public_access=true`, allow_list still gates external
+  connections, but they will not originate from the user's public IP. When
+  `implicit=True` (the default firewall+LKE+database path driven by `main()`),
+  the "No managed databases found" notice is suppressed so users without any
+  databases see no extra output. Returns
   `{"changed", "unchanged", "failed", "total"}`.
 
 ## File Locations
