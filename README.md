@@ -22,6 +22,7 @@ A tool to automatically update the [Akamai Connected Cloud (ACC) / Linode](https
 - **Interactive firewall selection** - List and choose from available firewalls
 - **Add mode** - Accumulate multiple IP addresses (ideal for traveling)
 - **LKE Control Plane ACL automation** - Every run also syncs your public IP into every LKE and LKE-E cluster's Control Plane ACL (opt-out with `--no-lke`; use `--lke` for LKE-only mode)
+- **Managed Database allow_list automation** - Every run also syncs your public IP into every MySQL/PostgreSQL Managed Database `allow_list` (opt-out with `--no-database`; use `--database` for database-only mode)
 - **Active firewall indicator** - When the config file is used, `acc-fwu` prints the firewall ID and label it's operating on
 
 ## Prerequisites
@@ -83,11 +84,12 @@ This will:
 2. Print the active firewall (for example `Using saved firewall: ID 123456, label 'My-IP' (from ~/.acc-fwu-config)`).
 3. Update the firewall rule with your current public IP address.
 4. Sync your current public IP into every LKE / LKE-E Control Plane ACL in your account. Pass `--no-lke` to skip this step.
+5. Sync your current public IP into every Managed Database (MySQL/PostgreSQL) `allow_list` in your account. Pass `--no-database` to skip this step.
 
 ### Command-Line Options
 
 ```
-usage: acc-fwu [-h] [--firewall_id FIREWALL_ID] [--label LABEL] [-d] [-r] [-a] [-l] [--lke] [--no-lke] [-q] [--dry-run] [-v]
+usage: acc-fwu [-h] [--firewall_id FIREWALL_ID] [--label LABEL] [-d] [-r] [-a] [-l] [--lke] [--no-lke] [--database] [--no-database] [-q] [--dry-run] [-v]
 
 Create, update, or remove Akamai Connected Cloud (Linode) firewall rules with your current IP address.
 
@@ -99,11 +101,15 @@ options:
   -d, --debug           Enable debug mode to show existing rules data.
   -r, --remove          Remove the specified rules from the firewall.
   -a, --add             Add IP to existing rules instead of replacing (useful for multiple locations).
-  -l, --list            List available firewalls (or LKE clusters with --lke) and exit.
+  -l, --list            List available firewalls (or LKE clusters with --lke, or managed databases with --database) and exit.
   --lke                 Target LKE/LKE-E Control Plane ACLs only; skip firewall rules.
                         Adds (or removes with -r) your current public IP to every cluster's ACL.
   --no-lke              Skip the default LKE/LKE-E Control Plane ACL update.
-                        By default, acc-fwu updates both firewall rules and LKE ACLs.
+                        By default, acc-fwu updates firewall rules, LKE ACLs, and managed database allow_lists.
+  --database            Target managed database allow_lists only; skip firewall rules.
+                        Adds (or removes with -r) your current public IP to every managed database's allow_list.
+  --no-database         Skip the default managed database allow_list update.
+                        By default, acc-fwu updates firewall rules, LKE ACLs, and managed database allow_lists.
   -q, --quiet           Suppress output messages (useful for cron/scripting).
   --dry-run             Show what would be done without making any changes.
   -v, --version         show program's version number and exit
@@ -235,16 +241,54 @@ acc-fwu --lke --remove
 
 Clusters whose ACL is disabled will still have the address stored, but `acc-fwu` prints a warning — the entry will not be enforced until you enable the ACL. Failures on individual clusters are logged and counted in the final summary but do not abort the run.
 
-### Cron Job Example
+### Managed Database `allow_list`
 
-To automatically update your firewall rules (and, since v0.3.1, any LKE / LKE-E Control Plane ACLs) every hour:
+`acc-fwu` automates [`allow_list`](https://techdocs.akamai.com/linode-api/reference/put-databases-mysql-instance) updates for every Linode Managed Database (MySQL and PostgreSQL) in your account. For each database it appends (or removes) your public IP, preserving any other entries already present.
+
+**Default behaviour:** every firewall update also syncs your IP into each managed database's `allow_list`. Accounts with no databases see no extra output. Pass `--no-database` to skip it, or `--database` for database-only mode.
+
+**List all managed databases:**
 
 ```bash
-# Update firewall rules + LKE ACLs every hour
+acc-fwu --database --list
+```
+
+**Skip the database step while still updating firewall rules:**
+
+```bash
+acc-fwu --no-database
+```
+
+**Database-only mode (skip firewall rule updates entirely):**
+
+```bash
+acc-fwu --database
+```
+
+**Preview changes:**
+
+```bash
+acc-fwu --database --dry-run
+```
+
+**Remove your current IP from every database's allow_list:**
+
+```bash
+acc-fwu --database --remove
+```
+
+Databases on engines other than `mysql` or `postgresql` are reported as a per-database skip. Failures on individual databases are logged and counted in the final summary but do not abort the run.
+
+### Cron Job Example
+
+To automatically update your firewall rules (along with LKE / LKE-E Control Plane ACLs and Managed Database `allow_list`s) every hour:
+
+```bash
+# Update firewall rules + LKE ACLs + database allow_lists every hour
 0 * * * * /usr/local/bin/acc-fwu --quiet
 
-# Firewall only (skip LKE step)
-0 * * * * /usr/local/bin/acc-fwu --quiet --no-lke
+# Firewall only (skip LKE and database steps)
+0 * * * * /usr/local/bin/acc-fwu --quiet --no-lke --no-database
 ```
 
 **Important**: Before using `--quiet` mode, you must have a valid configuration file (`~/.acc-fwu-config`) with your `firewall_id` and `label`. Interactive firewall selection is not available in quiet mode. Run `acc-fwu` interactively first to set up your configuration.

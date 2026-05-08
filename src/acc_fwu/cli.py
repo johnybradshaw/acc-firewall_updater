@@ -12,6 +12,7 @@ from .firewall import (
     select_firewall,
 )
 from .lke import list_lke_clusters, update_all_lke_acls
+from .databases import list_databases, update_all_database_acls
 from .output import format_target
 
 # Version is set dynamically by setuptools_scm, fallback for development
@@ -90,6 +91,44 @@ def _handle_lke_command(args):
     )
 
 
+def _handle_database_list_command():
+    """Handle the --list command when combined with --database."""
+    databases = list_databases()
+    if not databases:
+        print("No managed databases found in your Linode account.")
+        return
+
+    rows = [
+        (
+            db["id"],
+            db["label"],
+            db["region"],
+            db.get("engine", ""),
+            db.get("version", ""),
+            db["status"],
+        )
+        for db in databases
+    ]
+    _print_table(
+        "Available managed databases:",
+        ["ID", "Label", "Region", "Engine", "Version", "Status"],
+        rows,
+    )
+
+
+def _handle_database_command(args):
+    """Handle managed database allow_list operations across all databases."""
+    if args.list:
+        _handle_database_list_command()
+        return
+    update_all_database_acls(
+        debug=args.debug,
+        quiet=args.quiet,
+        dry_run=args.dry_run,
+        remove=args.remove,
+    )
+
+
 def _resolve_config_from_file(args_label, quiet=False):
     """Load config from file, using args_label as fallback."""
     firewall_id, label = load_config()
@@ -146,14 +185,24 @@ def _create_parser():
     parser.add_argument("-a", "--add", action="store_true",
                         help="Add IP to existing rules instead of replacing (useful for multiple locations).")
     parser.add_argument("-l", "--list", action="store_true",
-                        help="List available firewalls (or LKE clusters with --lke) and exit.")
+                        help="List available firewalls (or LKE clusters with --lke, "
+                             "or managed databases with --database) and exit.")
     parser.add_argument("--lke", action="store_true",
                         help="Target LKE/LKE-E Control Plane ACLs only; skip firewall rules. "
                              "Adds (or removes with -r) your current public IP to every "
                              "cluster's ACL.")
     parser.add_argument("--no-lke", action="store_true",
                         help="Skip the default LKE/LKE-E Control Plane ACL update. "
-                             "By default, acc-fwu updates both firewall rules and LKE ACLs.")
+                             "By default, acc-fwu updates firewall rules, LKE ACLs, "
+                             "and managed database allow_lists.")
+    parser.add_argument("--database", action="store_true",
+                        help="Target managed database allow_lists only; skip firewall rules. "
+                             "Adds (or removes with -r) your current public IP to every "
+                             "managed database's allow_list.")
+    parser.add_argument("--no-database", action="store_true",
+                        help="Skip the default managed database allow_list update. "
+                             "By default, acc-fwu updates firewall rules, LKE ACLs, "
+                             "and managed database allow_lists.")
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="Suppress output messages (useful for cron/scripting).")
     parser.add_argument("--dry-run", action="store_true",
@@ -182,6 +231,21 @@ def _execute_firewall_operation(args, firewall_id, label):
                              dry_run=args.dry_run, add_ip=args.add)
 
 
+def _run_implicit_batch_updates(args):
+    """Run the LKE and managed database batch updates that follow a firewall change."""
+    common = {
+        "debug": args.debug,
+        "quiet": args.quiet,
+        "dry_run": args.dry_run,
+        "remove": args.remove,
+        "implicit": True,
+    }
+    if not args.no_lke:
+        update_all_lke_acls(**common)
+    if not args.no_database:
+        update_all_database_acls(**common)
+
+
 def main():
     """
     Main CLI entry point for acc-fwu.
@@ -197,21 +261,17 @@ def main():
             _handle_lke_command(args)
             return
 
+        if args.database:
+            _handle_database_command(args)
+            return
+
         if args.list:
             _handle_list_command(args.debug)
             return
 
         firewall_id, label = _resolve_firewall_config(args)
         _execute_firewall_operation(args, firewall_id, label)
-
-        if not args.no_lke:
-            update_all_lke_acls(
-                debug=args.debug,
-                quiet=args.quiet,
-                dry_run=args.dry_run,
-                remove=args.remove,
-                implicit=True,
-            )
+        _run_implicit_batch_updates(args)
 
     except (ValueError, EOFError, KeyboardInterrupt) as e:
         if not args.quiet:
