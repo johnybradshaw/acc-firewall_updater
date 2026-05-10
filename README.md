@@ -327,6 +327,22 @@ This project is licensed under the GNU General Public License v3 (GPLv3) - see t
 
 ## Summary of Changes
 
+### 2026-05-10 - v0.4.0
+
+- **New Features**:
+  - Linode Managed Database (MySQL / PostgreSQL) `allow_list` updates now run by default alongside firewall and LKE updates — your public IP is added to (or removed from) every database's `allow_list` on each invocation. Pass `--no-database` to opt out, or use `--database` for a databases-only run. `--lke` and `--database` compose, e.g. `acc-fwu --lke --database` skips firewall and runs both.
+  - Added `--database --list` to enumerate every Managed Database on the account (engine, ID, label, region, current `allow_list`).
+  - VPC-attached databases (those with `private_network` set) are detected and skipped with a clear notice — the public IP we detect from ipify cannot reach a VPC-only endpoint, so updating their `allow_list` would be a no-op or worse, lock you out.
+- **Improvements**:
+  - Standardized output across every deployment type (firewall, LKE, database). All three now emit identically shaped lifecycle messages — target identifier (`<type> '<label>' (ID: <id>)`), preamble, result, no-op, dry-run, skip, and summary — via a shared `output.py` module. No more per-deployment-type phrasing drift.
+  - Remove, dry-run, and no-op paths in the firewall flow now also flow through the shared formatters and honour `--quiet`, so automated scripts get no output when they ask for none.
+  - Public IP detection is process-cached via `lru_cache`, so a single run hits `api.ipify.org` exactly once across the firewall, LKE, and database paths instead of three times.
+- **Dependency & Build Updates**:
+  - Upgraded `certifi` 2026.2.25 → 2026.4.22 and `idna` 3.11 → 3.13.
+  - Relaxed `setuptools-scm` build requirement to `>=9.2.2` to keep up with upstream and unblock Python 3.14 build environments.
+- **Tests**:
+  - Total test count is now 172, up from 110. New modules: `tests/test_databases.py` (27 tests covering listing, allow_list mutation, orchestrator failure isolation, VPC skip) and `tests/test_output.py` (19 tests covering every shared formatter). Existing CLI and firewall test classes were extended for the new flags and shared output behaviour.
+
 ### 2026-04-18 - v0.3.1
 
 - **New Features**:
