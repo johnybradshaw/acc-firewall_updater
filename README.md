@@ -27,7 +27,7 @@ A tool to automatically update the [Akamai Connected Cloud (ACC) / Linode](https
 
 ## Prerequisites
 
-- Python 3.9 or higher
+- Python 3.14 or higher
 - [Linode CLI](https://www.linode.com/docs/products/tools/cli/get-started/) configured with an API token
 - A Linode/ACC firewall ID
 

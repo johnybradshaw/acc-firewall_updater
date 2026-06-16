@@ -4,7 +4,7 @@ This guide explains how to set up a local development environment for `acc-fwu`.
 
 ## Prerequisites
 
-- Python 3.9 or higher
+- Python 3.14 or higher
 - pip (Python package installer)
 - git
 
