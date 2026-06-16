@@ -24,8 +24,9 @@ setup(
     url="https://github.com/johnybradshaw/acc-firewall_updater",
     classifiers=[
         "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.14",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.9",
+    python_requires=">=3.14",
 )
