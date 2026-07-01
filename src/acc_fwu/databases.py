@@ -1,3 +1,5 @@
+import sys
+
 import requests
 
 from .firewall import (
@@ -10,6 +12,7 @@ from .firewall import (
 from .output import (
     format_batch_preamble,
     format_dry_run,
+    format_failure,
     format_noop,
     format_result,
     format_skip,
@@ -147,8 +150,12 @@ def _apply_ip_to_allow_list(allow_list, ip_with_mask, remove):
     return new_list, True, False
 
 
-def _commit_allow_list_change(database, db_label, new_list, headers, debug, quiet):
-    """PUT the updated allow_list, returning True on success."""
+def _commit_allow_list_change(database, db_label, new_list, headers, debug):
+    """PUT the updated allow_list, returning True on success.
+
+    Failures always print to stderr, even in quiet mode, so cron runs
+    leave a diagnostic trail.
+    """
     try:
         put_database_allow_list(
             database["id"],
@@ -159,8 +166,7 @@ def _commit_allow_list_change(database, db_label, new_list, headers, debug, quie
         )
         return True
     except requests.RequestException as e:
-        if not quiet:
-            print(format_skip(db_label, f"failed to update ({e})"))
+        print(format_failure(db_label, f"failed to update ({e})"), file=sys.stderr)
         return False
 
 
@@ -170,7 +176,7 @@ def _report_unchanged(db_label, ip_with_mask, remove, quiet):
     print(format_noop(ip_with_mask, db_label, remove=remove))
 
 
-def _check_skip_reason(database, db_label, quiet):
+def _check_skip_reason(database):
     """Return a skip reason string if the database should be skipped, else None.
 
     Per the Linode API, ``private_network`` is null when no VPC is configured
@@ -199,11 +205,13 @@ def _process_database(database, ip_with_mask, remove, debug, quiet, dry_run, hea
     """Apply the IP change to a single database's allow_list."""
     db_label = _format_database_label(database)
 
-    skip_reason = _check_skip_reason(database, db_label, quiet)
+    skip_reason = _check_skip_reason(database)
     if skip_reason is not None:
+        # Skips are expected steady-state conditions (unlike failures), so
+        # they respect --quiet; they still go to stderr as diagnostics.
         if not quiet:
-            print(format_skip(db_label, skip_reason))
-        return "failed"
+            print(format_skip(db_label, skip_reason), file=sys.stderr)
+        return "skipped"
 
     allow_list = database.get("allow_list", [])
     if debug:
@@ -219,7 +227,7 @@ def _process_database(database, ip_with_mask, remove, debug, quiet, dry_run, hea
             print(format_dry_run(ip_with_mask, db_label, remove=remove))
         return "changed"
 
-    if not _commit_allow_list_change(database, db_label, new_list, headers, debug, quiet):
+    if not _commit_allow_list_change(database, db_label, new_list, headers, debug):
         return "failed"
 
     if not quiet:
@@ -242,7 +250,9 @@ def update_all_database_acls(debug=False, quiet=False, dry_run=False, remove=Fal
             any databases see no extra output.
 
     Returns:
-        dict: Summary counts: ``changed``, ``unchanged``, ``failed``, ``total``.
+        dict: Summary counts: ``changed``, ``unchanged``, ``skipped``,
+        ``failed``, ``total``. Unsupported engines and VPC-attached databases
+        count as ``skipped``; API errors count as ``failed``.
     """
     headers = _auth_headers()
     databases = list_databases()
@@ -250,14 +260,14 @@ def update_all_database_acls(debug=False, quiet=False, dry_run=False, remove=Fal
     if not databases:
         if not quiet and not implicit:
             print("No managed databases found in your Linode account.")
-        return {"changed": 0, "unchanged": 0, "failed": 0, "total": 0}
+        return {"changed": 0, "unchanged": 0, "skipped": 0, "failed": 0, "total": 0}
 
     ip_with_mask = f"{get_public_ip()}/32"
 
     if not quiet:
         print(format_batch_preamble(ip_with_mask, "managed database(s)", len(databases), remove=remove))
 
-    counts = {"changed": 0, "unchanged": 0, "failed": 0, "total": len(databases)}
+    counts = {"changed": 0, "unchanged": 0, "skipped": 0, "failed": 0, "total": len(databases)}
     for database in databases:
         result = _process_database(database, ip_with_mask, remove, debug, quiet, dry_run, headers)
         counts[result] = counts.get(result, 0) + 1

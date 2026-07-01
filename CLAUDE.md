@@ -82,13 +82,14 @@ python -m build
   - `_handle_database_list_command()` / `_handle_database_command(args)` - Managed-database list and update dispatch
   - `_resolve_firewall_config(args)` - Resolves config from args, file, or interactive selection
   - `_resolve_config_from_args(args)` / `_resolve_config_from_file(label, quiet)` / `_resolve_config_interactive(args)` - Config resolution helpers. `_resolve_config_from_file` prints the active firewall ID/label unless `quiet`.
-  - `_execute_firewall_operation(args, firewall_id, label)` - Dispatches update or remove
-  - `_run_implicit_batch_updates(args)` - After the firewall op, calls `update_all_lke_acls(..., implicit=True)` unless `--no-lke`, then `update_all_database_acls(..., implicit=True)` unless `--no-database`
-  - `main()` - Top-level dispatcher
+  - `_execute_firewall_operation(args, firewall_id, label)` - Dispatches update or remove, returns the operation's summary counts
+  - `_run_implicit_batch_updates(args)` - After the firewall op, calls `update_all_lke_acls(..., implicit=True)` unless `--no-lke`, then `update_all_database_acls(..., implicit=True)` unless `--no-database`; returns the total failed count
+  - `_failed_count(counts)` - Safely extracts `failed` from a summary-counts dict
+  - `_dispatch(args)` / `main()` - Top-level dispatcher; `main()` exits 2 when any target failed
 - **`firewall.py`**: Contains all business logic, API interactions, and validation
 - **`lke.py`**: LKE/LKE-E cluster enumeration and Control Plane ACL mutation
 - **`databases.py`**: Managed Database (MySQL/PostgreSQL) enumeration and `allow_list` mutation
-- **`output.py`**: Shared formatters that every deployment type (firewall, LKE, databases, any future type) uses so their output looks identical — target identifier: `<type> '<label>' (ID: <id>)`; lifecycle lines: preamble, result, noop, dry-run, skip, summary
+- **`output.py`**: Shared formatters that every deployment type (firewall, LKE, databases, any future type) uses so their output looks identical — target identifier: `<type> '<label>' (ID: <id>)`; lifecycle lines: preamble, result, noop, dry-run, skip, failure, summary. Skips are expected conditions (respect `--quiet`); failures are unexpected API errors (always printed). Both go to stderr. Summary shape: `Done. changed=X unchanged=Y skipped=S failed=Z total=W`
 
 ### Validation Functions (firewall.py)
 All inputs are validated before use:
@@ -123,10 +124,12 @@ LABEL_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
 IPV4_PATTERN = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$")
 ```
 
-### Error Handling Pattern (cli.py:215-223)
-- `ValueError`, `EOFError`, `KeyboardInterrupt` → Error message to stderr, exit code 1
+### Error Handling Pattern (cli.py `main()`)
+- `ValueError`, `EOFError`, `KeyboardInterrupt` → Error message to stderr (even in quiet mode), exit code 1
 - `FileNotFoundError` → Handled internally by `_resolve_firewall_config` (triggers interactive selection)
-- General exceptions → "Error" message to stderr (or re-raised in debug mode)
+- General exceptions → "Error" message to stderr (or re-raised in debug mode), exit code 1
+- Partial batch failure (some LKE clusters / databases errored but the run completed) → exit code 2
+- `--quiet` suppresses informational stdout only; failure diagnostics always print to stderr so cron runs leave a trail
 
 ## Testing Conventions
 
@@ -158,6 +161,7 @@ Tests are organized by class with descriptive names:
 - `TestCliDatabaseFlag` - Database-only mode (--database flag) tests
 - `TestCliDefaultDatabaseBehavior` - Default-on database update and --no-database opt-out
 - `TestCliListTableFormatting` - Dynamic column widths in --list output
+- `TestCliExitCodes` - Exit code 2 on partial batch failures; skips do not fail the run
 
 **test_lke.py** (unit tests for LKE / LKE-E ACL logic):
 - `TestListLkeClusters` - Paginated cluster listing, LKE-E `tier` detection
@@ -290,17 +294,19 @@ The tool uses the Linode API v4:
   the `{"acl": {...}}` envelope the PUT endpoint expects.
 - `update_all_lke_acls(debug, quiet, dry_run, remove, implicit=False)` -
   Orchestrator. Iterates clusters and applies `_apply_ip_to_acl` to add/remove
-  the current public IP. Per-cluster fetch/PUT failures are logged and counted
-  (`failed`) but do not abort the batch. When `implicit=True` (the default
-  firewall+LKE path driven by `main()`), the "No LKE clusters found" notice is
-  suppressed so users without any clusters see no extra output. Returns
-  `{"changed", "unchanged", "failed", "total"}`.
+  the current public IP. Per-cluster fetch/PUT failures are printed to stderr
+  (even in quiet mode) and counted (`failed`) but do not abort the batch. When
+  `implicit=True` (the default firewall+LKE path driven by `main()`), the
+  "No LKE clusters found" notice is suppressed so users without any clusters
+  see no extra output. Returns
+  `{"changed", "unchanged", "skipped", "failed", "total"}`; a non-zero
+  `failed` makes `main()` exit 2.
 
 ### Databases Module (`databases.py`)
 
 - `SUPPORTED_DB_ENGINES = ("mysql", "postgresql")` - engines whose `allow_list`
   this tool knows how to update; other engines surfaced by the listing endpoint
-  are reported as a per-database `failed` skip.
+  are reported as a per-database skip (`skipped`).
 - `list_databases()` - Paginated list of every managed database on the account
   via `/databases/instances`. The list response already contains `allow_list`,
   so the orchestrator does not need a per-database GET.
@@ -311,16 +317,19 @@ The tool uses the Linode API v4:
   list (does not mutate the input) plus `(changed, already_in_state)` flags.
 - `update_all_database_acls(debug, quiet, dry_run, remove, implicit=False)` -
   Orchestrator. Iterates databases and applies `_apply_ip_to_allow_list` to
-  add/remove the current public IP. Per-database PUT failures, unsupported
-  engines, and **VPC-attached databases** (`private_network` is non-null) are
-  logged and counted (`failed`) but do not abort the batch. We skip VPC-attached
-  databases because the public IP we detect from ipify cannot reach a VPC-only
-  endpoint — even with `public_access=true`, allow_list still gates external
-  connections, but they will not originate from the user's public IP. When
-  `implicit=True` (the default firewall+LKE+database path driven by `main()`),
-  the "No managed databases found" notice is suppressed so users without any
-  databases see no extra output. Returns
-  `{"changed", "unchanged", "failed", "total"}`.
+  add/remove the current public IP. Per-database PUT failures are printed to
+  stderr (even in quiet mode) and counted (`failed`); unsupported engines and
+  **VPC-attached databases** (`private_network` is non-null) are expected
+  conditions, printed to stderr unless `--quiet` and counted (`skipped`).
+  Neither aborts the batch, and only `failed` affects the exit code. We skip
+  VPC-attached databases because the public IP we detect from ipify cannot
+  reach a VPC-only endpoint — even with `public_access=true`, allow_list still
+  gates external connections, but they will not originate from the user's
+  public IP. When `implicit=True` (the default firewall+LKE+database path
+  driven by `main()`), the "No managed databases found" notice is suppressed
+  so users without any databases see no extra output. Returns
+  `{"changed", "unchanged", "skipped", "failed", "total"}`; a non-zero
+  `failed` makes `main()` exit 2.
 
 ## File Locations
 

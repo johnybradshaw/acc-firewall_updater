@@ -7,6 +7,7 @@ from acc_fwu.output import (
     format_batch_preamble,
     format_dry_run,
     format_dry_run_noop,
+    format_failure,
     format_noop,
     format_preamble,
     format_result,
@@ -101,15 +102,28 @@ class TestSkip:
         assert format_skip(t, "timed out") == "Skipping LKE 'broken' (ID: 99): timed out"
 
 
+class TestFailure:
+    def test_failure_with_reason(self):
+        t = format_target("LKE", "broken", 99)
+        assert format_failure(t, "failed to update (500)") == (
+            "Error on LKE 'broken' (ID: 99): failed to update (500)"
+        )
+
+
 class TestSummary:
     def test_all_counts(self):
         assert format_summary(
-            {"changed": 2, "unchanged": 1, "failed": 0, "total": 3}
-        ) == "Done. changed=2 unchanged=1 failed=0 total=3"
+            {"changed": 2, "unchanged": 1, "skipped": 0, "failed": 0, "total": 3}
+        ) == "Done. changed=2 unchanged=1 skipped=0 failed=0 total=3"
+
+    def test_skipped_count(self):
+        assert format_summary(
+            {"changed": 1, "unchanged": 0, "skipped": 2, "failed": 1, "total": 4}
+        ) == "Done. changed=1 unchanged=0 skipped=2 failed=1 total=4"
 
     def test_missing_counts_default_zero(self):
         assert format_summary({"total": 1}) == (
-            "Done. changed=0 unchanged=0 failed=0 total=1"
+            "Done. changed=0 unchanged=0 skipped=0 failed=0 total=1"
         )
 
 

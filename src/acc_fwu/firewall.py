@@ -335,6 +335,10 @@ def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=F
         quiet (bool): If True, suppress output messages.
         dry_run (bool): If True, show what would be removed without making changes.
 
+    Returns:
+        dict: Summary counts: ``changed``, ``unchanged``, ``skipped``,
+        ``failed``, ``total``.
+
     Raises:
         ValueError: If firewall_id or label are invalid.
     """
@@ -372,14 +376,14 @@ def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=F
     rules_to_remove = len(existing_rules) - len(filtered_rules)
 
     if rules_to_remove == 0:
-        counts = {"changed": 0, "unchanged": 1, "failed": 0, "total": 1}
+        counts = {"changed": 0, "unchanged": 1, "skipped": 0, "failed": 0, "total": 1}
         if not quiet:
             print(format_noop(f"rules labeled '{label}'", target, remove=True))
             print(format_summary(counts))
         return counts
 
     if dry_run:
-        counts = {"changed": 1, "unchanged": 0, "failed": 0, "total": 1}
+        counts = {"changed": 1, "unchanged": 0, "skipped": 0, "failed": 0, "total": 1}
         if not quiet:
             print(format_dry_run(
                 f"{rules_to_remove} rule(s) labeled '{label}'",
@@ -402,7 +406,7 @@ def remove_firewall_rule(firewall_id, label, debug=False, quiet=False, dry_run=F
             print("Response content:", response.content)
         response.raise_for_status()
 
-    counts = {"changed": 1, "unchanged": 0, "failed": 0, "total": 1}
+    counts = {"changed": 1, "unchanged": 0, "skipped": 0, "failed": 0, "total": 1}
     if not quiet:
         print(format_result(
             f"{rules_to_remove} firewall rule(s) labeled '{label}'",
@@ -513,7 +517,7 @@ def update_firewall_rule(
     quiet: bool = False,
     dry_run: bool = False,
     add_ip: bool = False
-) -> None:
+) -> dict:
     """
     Update firewall rules by adding or updating rules with the current public IP address.
 
@@ -529,7 +533,8 @@ def update_firewall_rule(
         add_ip (bool): If True, append IP to existing rules instead of replacing.
 
     Returns:
-        None
+        dict: Summary counts: ``changed``, ``unchanged``, ``skipped``,
+        ``failed``, ``total``.
 
     Raises:
         ValueError: If firewall_id or label are invalid.
@@ -567,9 +572,9 @@ def update_firewall_rule(
 
     if dry_run:
         counts = (
-            {"changed": 0, "unchanged": 1, "failed": 0, "total": 1}
+            {"changed": 0, "unchanged": 1, "skipped": 0, "failed": 0, "total": 1}
             if _no_changes_needed(ip_already_exists, add_ip, updated_count, created_count)
-            else {"changed": 1, "unchanged": 0, "failed": 0, "total": 1}
+            else {"changed": 1, "unchanged": 0, "skipped": 0, "failed": 0, "total": 1}
         )
         if not quiet:
             _print_dry_run_message(
@@ -579,7 +584,7 @@ def update_firewall_rule(
         return counts
 
     if _no_changes_needed(ip_already_exists, add_ip, updated_count, created_count):
-        counts = {"changed": 0, "unchanged": 1, "failed": 0, "total": 1}
+        counts = {"changed": 0, "unchanged": 1, "skipped": 0, "failed": 0, "total": 1}
         if not quiet:
             print(format_noop(ip_with_mask, target))
             print(format_summary(counts))
@@ -601,7 +606,7 @@ def update_firewall_rule(
             print("Response content:", response.content)
         response.raise_for_status()
 
-    counts = {"changed": 1, "unchanged": 0, "failed": 0, "total": 1}
+    counts = {"changed": 1, "unchanged": 0, "skipped": 0, "failed": 0, "total": 1}
     if not quiet:
         _print_result_message(ip_with_mask, target)
         print(format_summary(counts))

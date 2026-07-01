@@ -210,8 +210,8 @@ class TestCliNewOptions:
             "12345", "Default-Label", debug=True, quiet=False, dry_run=False, add_ip=False
         )
 
-    def test_main_quiet_mode_suppresses_config_error(self, monkeypatch, capsys):
-        """Test that --quiet suppresses config file not found message."""
+    def test_main_quiet_mode_still_reports_config_error(self, monkeypatch, capsys):
+        """--quiet silences stdout, but the fatal error still reaches stderr."""
         mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
@@ -222,8 +222,9 @@ class TestCliNewOptions:
 
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
-        # Output should be empty in quiet mode
+        # stdout stays empty in quiet mode, but the diagnostic goes to stderr
         assert captured.out == ""
+        assert "Error:" in captured.err
 
 
 class TestCliValidation:
@@ -852,3 +853,77 @@ class TestCliListTableFormatting:
                 break
         else:
             pytest.fail(f"long label {long_label!r} not found in output:\n{captured.out}")
+
+
+class TestCliExitCodes:
+    """Tests for exit code 2 when batch updates report failed targets."""
+
+    FAILED = {"changed": 0, "unchanged": 0, "skipped": 0, "failed": 1, "total": 1}
+    CLEAN = {"changed": 1, "unchanged": 0, "skipped": 0, "failed": 0, "total": 1}
+
+    def _setup_firewall_path(self, monkeypatch, lke_counts, db_counts):
+        monkeypatch.setattr("acc_fwu.cli.load_config",
+                            mock.MagicMock(return_value=("12345", "Label")))
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule",
+                            mock.MagicMock(return_value=self.CLEAN))
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls",
+                            mock.MagicMock(return_value=lke_counts))
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls",
+                            mock.MagicMock(return_value=db_counts))
+
+    def test_implicit_lke_failure_exits_2(self, monkeypatch):
+        """A failed cluster in the implicit LKE batch must exit 2, not 0."""
+        self._setup_firewall_path(monkeypatch, self.FAILED, self.CLEAN)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 2
+
+    def test_implicit_database_failure_exits_2(self, monkeypatch):
+        """A failed database in the implicit batch must exit 2, not 0."""
+        self._setup_firewall_path(monkeypatch, self.CLEAN, self.FAILED)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 2
+
+    def test_all_clean_exits_normally(self, monkeypatch):
+        """No failures anywhere means a normal (0) exit."""
+        self._setup_firewall_path(monkeypatch, self.CLEAN, self.CLEAN)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu"])
+
+        main()  # must not raise SystemExit
+
+    def test_skipped_targets_do_not_fail_the_run(self, monkeypatch):
+        """Skipped databases (VPC/unsupported engine) are not failures."""
+        skipped = {"changed": 0, "unchanged": 0, "skipped": 2, "failed": 0, "total": 2}
+        self._setup_firewall_path(monkeypatch, self.CLEAN, skipped)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu"])
+
+        main()  # must not raise SystemExit
+
+    def test_explicit_lke_failure_exits_2(self, monkeypatch):
+        """--lke with a failed cluster must exit 2."""
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls",
+                            mock.MagicMock(return_value=self.FAILED))
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 2
+
+    def test_explicit_database_failure_exits_2(self, monkeypatch):
+        """--database with a failed database must exit 2."""
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls",
+                            mock.MagicMock(return_value=self.FAILED))
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--database"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 2
