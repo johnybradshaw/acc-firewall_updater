@@ -188,7 +188,7 @@ class TestUpdateAllDatabaseAcls:
 
         counts = update_all_database_acls(quiet=True)
 
-        assert counts == {"changed": 2, "unchanged": 0, "failed": 0, "total": 2}
+        assert counts == {"changed": 2, "unchanged": 0, "skipped": 0, "failed": 0, "total": 2}
         assert put_mock.call_count == 2
         # First call: db id=1 mysql, allow_list should now contain the IP
         assert put_mock.call_args_list[0][0][0] == 1
@@ -287,14 +287,16 @@ class TestUpdateAllDatabaseAcls:
         counts = update_all_database_acls(quiet=False)
 
         assert counts["changed"] == 1
-        assert counts["failed"] == 2
+        assert counts["skipped"] == 2
+        assert counts["failed"] == 0
         # Only the non-VPC database is updated
         put_mock.assert_called_once()
         assert put_mock.call_args[0][0] == 3
+        # Skip notices are diagnostics and go to stderr
         captured = capsys.readouterr()
-        assert "attached to VPC" in captured.out
-        assert "vpc_id=42" in captured.out
-        assert "vpc_id=99" in captured.out
+        assert "attached to VPC" in captured.err
+        assert "vpc_id=42" in captured.err
+        assert "vpc_id=99" in captured.err
 
     def test_vpc_skip_respects_quiet(self, monkeypatch, capsys):
         databases = [
@@ -305,10 +307,13 @@ class TestUpdateAllDatabaseAcls:
 
         counts = update_all_database_acls(quiet=True)
 
-        assert counts["failed"] == 1
+        assert counts["skipped"] == 1
+        assert counts["failed"] == 0
         put_mock.assert_not_called()
+        # Skips are expected conditions, so quiet silences them entirely
         captured = capsys.readouterr()
         assert captured.out == ""
+        assert captured.err == ""
 
     def test_missing_private_network_field_treated_as_non_vpc(self, monkeypatch):
         """Older API responses without the private_network field should not be
@@ -324,7 +329,7 @@ class TestUpdateAllDatabaseAcls:
         assert counts["failed"] == 0
         put_mock.assert_called_once()
 
-    def test_unsupported_engine_is_failed(self, monkeypatch, capsys):
+    def test_unsupported_engine_is_skipped(self, monkeypatch, capsys):
         databases = [
             {"id": 1, "label": "redis", "engine": "redis", "allow_list": []},
             {"id": 2, "label": "primary", "engine": "mysql", "allow_list": []},
@@ -333,13 +338,14 @@ class TestUpdateAllDatabaseAcls:
 
         counts = update_all_database_acls(quiet=False)
 
-        assert counts["failed"] == 1
+        assert counts["skipped"] == 1
+        assert counts["failed"] == 0
         assert counts["changed"] == 1
         # Only the supported engine is updated
         put_mock.assert_called_once()
         assert put_mock.call_args[0][1] == "mysql"
         captured = capsys.readouterr()
-        assert "unsupported engine" in captured.out
+        assert "unsupported engine" in captured.err
 
     def test_put_failure_is_counted(self, monkeypatch, capsys):
         databases = [{"id": 1, "label": "primary", "engine": "mysql",
@@ -357,7 +363,8 @@ class TestUpdateAllDatabaseAcls:
         assert counts["failed"] == 1
         assert counts["changed"] == 0
         captured = capsys.readouterr()
-        assert "failed to update" in captured.out
+        assert "Error on mysql database 'primary' (ID: 1)" in captured.err
+        assert "failed to update" in captured.err
 
     def test_summary_printed_when_not_quiet(self, monkeypatch, capsys):
         databases = [{"id": 1, "label": "primary", "engine": "mysql",
@@ -389,3 +396,7 @@ class TestUpdateAllDatabaseAcls:
         assert counts["changed"] == 1
         assert counts["failed"] == 1
         assert counts["total"] == 2
+        # The failure is still reported on stderr despite quiet mode
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Error on mysql database 'primary' (ID: 1)" in captured.err

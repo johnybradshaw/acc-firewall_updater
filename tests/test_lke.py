@@ -191,7 +191,7 @@ class TestUpdateAllLkeAcls:
 
         counts = update_all_lke_acls(quiet=True)
 
-        assert counts == {"changed": 2, "unchanged": 0, "failed": 0, "total": 2}
+        assert counts == {"changed": 2, "unchanged": 0, "skipped": 0, "failed": 0, "total": 2}
         assert put_mock.call_count == 2
         sent = put_mock.call_args_list[0][0][1]
         assert "9.9.9.9/32" in sent["addresses"]["ipv4"]
@@ -291,8 +291,10 @@ class TestUpdateAllLkeAcls:
         assert counts["changed"] == 1
         assert counts["failed"] == 1
         put_mock.assert_called_once()
+        captured = capsys.readouterr()
+        assert "failed to fetch ACL" in captured.err
 
-    def test_put_failure_is_counted(self, monkeypatch):
+    def test_put_failure_is_counted(self, monkeypatch, capsys):
         clusters = [{"id": 1, "label": "std", "tier": "standard"}]
         acls = {1: {"enabled": True, "addresses": {"ipv4": [], "ipv6": []}}}
         monkeypatch.setattr("acc_fwu.lke.get_api_token", mock.Mock(return_value="test-token"))
@@ -308,3 +310,9 @@ class TestUpdateAllLkeAcls:
 
         assert counts["failed"] == 1
         assert counts["changed"] == 0
+        # Failures are diagnostics: printed to stderr even in quiet mode,
+        # while stdout stays silent.
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Error on LKE 'std' (ID: 1)" in captured.err
+        assert "failed to update" in captured.err

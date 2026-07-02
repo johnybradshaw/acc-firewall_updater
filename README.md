@@ -293,6 +293,16 @@ To automatically update your firewall rules (along with LKE / LKE-E Control Plan
 
 **Important**: Before using `--quiet` mode, you must have a valid configuration file (`~/.acc-fwu-config`) with your `firewall_id` and `label`. Interactive firewall selection is not available in quiet mode. Run `acc-fwu` interactively first to set up your configuration.
 
+### Exit Codes
+
+`acc-fwu` reports its outcome through the exit code, so cron and scripts can detect problems:
+
+- `0` — success (including no-op runs where everything was already up to date)
+- `1` — fatal error (invalid input, missing configuration, API/authentication failure)
+- `2` — the run completed, but one or more targets failed to update (e.g. a PUT to one LKE cluster or database errored while the others succeeded)
+
+Failures are always printed to `stderr`, even with `--quiet` — quiet mode silences informational output, not diagnostics — so failed cron runs leave a trail in your logs or cron mail. Expected skips (unsupported database engines, VPC-attached databases) are reported on `stderr` as `skipped` in the summary, respect `--quiet`, and do not affect the exit code.
+
 ## Configuration File
 
 The `acc-fwu` tool saves the `firewall_id` and `label` in a configuration file located at `~/.acc-fwu-config`. This file is:

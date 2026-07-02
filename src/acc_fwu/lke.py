@@ -1,3 +1,5 @@
+import sys
+
 import requests
 
 from .firewall import (
@@ -10,9 +12,9 @@ from .firewall import (
 from .output import (
     format_batch_preamble,
     format_dry_run,
+    format_failure,
     format_noop,
     format_result,
-    format_skip,
     format_summary,
     format_target,
 )
@@ -169,24 +171,30 @@ def _apply_ip_to_acl(acl, ip_with_mask, remove):
     return new_acl, True, False
 
 
-def _fetch_acl_safe(cluster, cluster_label, quiet, headers):
-    """Fetch ACL for a cluster, returning None on HTTP failure."""
+def _fetch_acl_safe(cluster, cluster_label, headers):
+    """Fetch ACL for a cluster, returning None on HTTP failure.
+
+    Failures always print to stderr, even in quiet mode, so cron runs
+    leave a diagnostic trail.
+    """
     try:
         return get_lke_acl(cluster["id"], headers=headers)
     except requests.RequestException as e:
-        if not quiet:
-            print(format_skip(cluster_label, f"failed to fetch ACL ({e})"))
+        print(format_failure(cluster_label, f"failed to fetch ACL ({e})"), file=sys.stderr)
         return None
 
 
-def _commit_acl_change(cluster, cluster_label, new_acl, headers, debug, quiet):
-    """PUT the updated ACL, returning True on success."""
+def _commit_acl_change(cluster, cluster_label, new_acl, headers, debug):
+    """PUT the updated ACL, returning True on success.
+
+    Failures always print to stderr, even in quiet mode, so cron runs
+    leave a diagnostic trail.
+    """
     try:
         put_lke_acl(cluster["id"], new_acl, headers=headers, debug=debug)
         return True
     except requests.RequestException as e:
-        if not quiet:
-            print(format_skip(cluster_label, f"failed to update ({e})"))
+        print(format_failure(cluster_label, f"failed to update ({e})"), file=sys.stderr)
         return False
 
 
@@ -206,7 +214,7 @@ def _process_cluster(cluster, ip_with_mask, remove, debug, quiet, dry_run, heade
     """Apply the IP change to a single cluster's Control Plane ACL."""
     cluster_label = _format_cluster_label(cluster)
 
-    acl = _fetch_acl_safe(cluster, cluster_label, quiet, headers)
+    acl = _fetch_acl_safe(cluster, cluster_label, headers)
     if acl is None:
         return "failed"
 
@@ -225,7 +233,7 @@ def _process_cluster(cluster, ip_with_mask, remove, debug, quiet, dry_run, heade
 
     _maybe_warn_disabled(acl, cluster_label, remove, quiet)
 
-    if not _commit_acl_change(cluster, cluster_label, new_acl, headers, debug, quiet):
+    if not _commit_acl_change(cluster, cluster_label, new_acl, headers, debug):
         return "failed"
 
     if not quiet:
@@ -247,7 +255,8 @@ def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False, i
             "No LKE clusters found" notice so users without LKE see no noise.
 
     Returns:
-        dict: Summary counts: ``changed``, ``unchanged``, ``failed``, ``total``.
+        dict: Summary counts: ``changed``, ``unchanged``, ``skipped``,
+        ``failed``, ``total``.
     """
     headers = _auth_headers()
     clusters = list_lke_clusters()
@@ -255,14 +264,14 @@ def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False, i
     if not clusters:
         if not quiet and not implicit:
             print("No LKE clusters found in your Linode account.")
-        return {"changed": 0, "unchanged": 0, "failed": 0, "total": 0}
+        return {"changed": 0, "unchanged": 0, "skipped": 0, "failed": 0, "total": 0}
 
     ip_with_mask = f"{get_public_ip()}/32"
 
     if not quiet:
         print(format_batch_preamble(ip_with_mask, "LKE cluster(s)", len(clusters), remove=remove))
 
-    counts = {"changed": 0, "unchanged": 0, "failed": 0, "total": len(clusters)}
+    counts = {"changed": 0, "unchanged": 0, "skipped": 0, "failed": 0, "total": len(clusters)}
     for cluster in clusters:
         result = _process_cluster(cluster, ip_with_mask, remove, debug, quiet, dry_run, headers)
         counts[result] = counts.get(result, 0) + 1

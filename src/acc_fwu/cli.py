@@ -82,8 +82,8 @@ def _handle_lke_command(args):
     """Handle LKE Control Plane ACL operations across all clusters."""
     if args.list:
         _handle_lke_list_command()
-        return
-    update_all_lke_acls(
+        return None
+    return update_all_lke_acls(
         debug=args.debug,
         quiet=args.quiet,
         dry_run=args.dry_run,
@@ -120,8 +120,8 @@ def _handle_database_command(args):
     """Handle managed database allow_list operations across all databases."""
     if args.list:
         _handle_database_list_command()
-        return
-    update_all_database_acls(
+        return None
+    return update_all_database_acls(
         debug=args.debug,
         quiet=args.quiet,
         dry_run=args.dry_run,
@@ -225,14 +225,24 @@ def _resolve_firewall_config(args):
 def _execute_firewall_operation(args, firewall_id, label):
     """Execute the firewall operation (update or remove)."""
     if args.remove:
-        remove_firewall_rule(firewall_id, label, debug=args.debug, quiet=args.quiet, dry_run=args.dry_run)
-    else:
-        update_firewall_rule(firewall_id, label, debug=args.debug, quiet=args.quiet,
-                             dry_run=args.dry_run, add_ip=args.add)
+        return remove_firewall_rule(firewall_id, label, debug=args.debug, quiet=args.quiet, dry_run=args.dry_run)
+    return update_firewall_rule(firewall_id, label, debug=args.debug, quiet=args.quiet,
+                                dry_run=args.dry_run, add_ip=args.add)
+
+
+def _failed_count(counts):
+    """Extract the failed count from an operation's summary counts."""
+    if isinstance(counts, dict):
+        return counts.get("failed", 0)
+    return 0
 
 
 def _run_implicit_batch_updates(args):
-    """Run the LKE and managed database batch updates that follow a firewall change."""
+    """Run the LKE and managed database batch updates that follow a firewall change.
+
+    Returns:
+        int: Total number of failed targets across both batches.
+    """
     common = {
         "debug": args.debug,
         "quiet": args.quiet,
@@ -240,10 +250,34 @@ def _run_implicit_batch_updates(args):
         "remove": args.remove,
         "implicit": True,
     }
+    failed = 0
     if not args.no_lke:
-        update_all_lke_acls(**common)
+        failed += _failed_count(update_all_lke_acls(**common))
     if not args.no_database:
-        update_all_database_acls(**common)
+        failed += _failed_count(update_all_database_acls(**common))
+    return failed
+
+
+def _dispatch(args):
+    """Run the requested operations and return the number of failed targets."""
+    if args.lke or args.database:
+        # Explicit selectors: skip the firewall path and run whichever
+        # resource types were requested. Combining --lke and --database is
+        # supported and runs both in sequence.
+        failed = 0
+        if args.lke:
+            failed += _failed_count(_handle_lke_command(args))
+        if args.database:
+            failed += _failed_count(_handle_database_command(args))
+        return failed
+
+    if args.list:
+        _handle_list_command(args.debug)
+        return 0
+
+    firewall_id, label = _resolve_firewall_config(args)
+    failed = _failed_count(_execute_firewall_operation(args, firewall_id, label))
+    return failed + _run_implicit_batch_updates(args)
 
 
 def main():
@@ -252,32 +286,21 @@ def main():
 
     Parses command-line arguments and executes the appropriate firewall
     operation (update or remove rules).
+
+    Exit codes: 0 on success, 1 on a fatal error, 2 when the run completed
+    but one or more targets failed to update.
     """
     parser = _create_parser()
     args = parser.parse_args()
 
     try:
-        if args.lke or args.database:
-            # Explicit selectors: skip the firewall path and run whichever
-            # resource types were requested. Combining --lke and --database is
-            # supported and runs both in sequence.
-            if args.lke:
-                _handle_lke_command(args)
-            if args.database:
-                _handle_database_command(args)
-            return
-
-        if args.list:
-            _handle_list_command(args.debug)
-            return
-
-        firewall_id, label = _resolve_firewall_config(args)
-        _execute_firewall_operation(args, firewall_id, label)
-        _run_implicit_batch_updates(args)
+        if _dispatch(args):
+            sys.exit(2)
 
     except (ValueError, EOFError, KeyboardInterrupt) as e:
-        if not args.quiet:
-            print(f"Error: {e}", file=sys.stderr)
+        # Always print errors, even in quiet mode: --quiet silences
+        # informational output, not diagnostics.
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
         if args.debug:
