@@ -363,6 +363,24 @@ This project is licensed under the GNU General Public License v3 (GPLv3) - see t
 
 ## Summary of Changes
 
+### 2026-07-09 - v0.5.0
+
+- **Breaking Changes**:
+  - `python_requires` is now `>=3.14` (was `>=3.9`). Users on older Python versions must stay on v0.4.0 or upgrade their interpreter.
+  - `acc-fwu` now exits **2** when any LKE cluster or managed database failed to update (previously it exited 0 and the failure was only visible in the printed summary). Scripts that treat any non-zero exit as fatal are unaffected; scripts that only checked for exit 1 should be reviewed.
+- **New Features**:
+  - Added `--lke-enable-acl`. By default an LKE/LKE-E cluster's `enabled` state is preserved, so an IP added to a *disabled* Control Plane ACL is stored but not enforced. This switch enables the ACL as the IP is added, so the rule takes effect immediately. Ignored with `-r/--remove`.
+  - Added `--db-enable-firewall`. Managed databases have no firewall on/off toggle — the `allow_list` *is* the firewall, and an entry of `0.0.0.0/0` (or `::/0`) leaves it open to the internet. This switch strips those open ranges while adding your IP. The IP is always added before the ranges are removed, so the `allow_list` is never left empty. Ignored with `-r/--remove`.
+- **Improvements**:
+  - Failures now print to `stderr` unconditionally, even under `--quiet` — quiet mode silences informational output, not diagnostics — so failed cron runs leave a trail in logs or cron mail.
+  - Expected skips (unsupported database engines, VPC-attached databases) are counted as `skipped` rather than `failed`, respect `--quiet`, and do not affect the exit code. Summaries gain a `skipped=` field.
+- **Dependency & Build Updates**:
+  - Upgraded `certifi` 2026.4.22 → 2026.6.17, `charset-normalizer` 3.4.7 → 3.4.8, `idna` 3.13 → 3.18, `requests` 2.33.1 → 2.34.2, and `urllib3` 2.6.3 → 2.7.0.
+  - Raised the `setuptools_scm` build requirement to `>=10.2.0` and added the `Programming Language :: Python :: 3.14` classifier.
+  - Bumped GitHub Actions to Node.js 24-compatible versions.
+- **Tests**:
+  - Total test count is now 198, up from 172, covering the two new switches, the exit-code contract, and the skipped-vs-failed distinction.
+
 ### 2026-05-10 - v0.4.0
 
 - **New Features**:
