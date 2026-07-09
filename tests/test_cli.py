@@ -510,7 +510,9 @@ class TestCliLkeFlag:
 
         main()
 
-        mock_update.assert_called_once_with(debug=False, quiet=False, dry_run=False, remove=False)
+        mock_update.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, enable_acl=False,
+        )
 
     def test_main_with_lke_and_remove(self, monkeypatch):
         """Test --lke -r passes remove=True."""
@@ -520,7 +522,9 @@ class TestCliLkeFlag:
 
         main()
 
-        mock_update.assert_called_once_with(debug=False, quiet=False, dry_run=False, remove=True)
+        mock_update.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=True, enable_acl=False,
+        )
 
     def test_main_with_lke_dry_run_and_quiet(self, monkeypatch):
         """Test --lke honors --dry-run and --quiet."""
@@ -530,7 +534,21 @@ class TestCliLkeFlag:
 
         main()
 
-        mock_update.assert_called_once_with(debug=False, quiet=True, dry_run=True, remove=False)
+        mock_update.assert_called_once_with(
+            debug=False, quiet=True, dry_run=True, remove=False, enable_acl=False,
+        )
+
+    def test_lke_enable_acl_flag_propagates(self, monkeypatch):
+        """--lke --lke-enable-acl passes enable_acl=True."""
+        mock_update = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke", "--lke-enable-acl"])
+
+        main()
+
+        mock_update.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, enable_acl=True,
+        )
 
     def test_main_with_lke_list(self, monkeypatch, capsys):
         """Test --lke --list shows LKE clusters and exits without touching ACLs."""
@@ -637,6 +655,7 @@ class TestCliDefaultLkeBehavior:
         mock_update_fw.assert_called_once()
         mock_update_lke.assert_called_once_with(
             debug=False, quiet=False, dry_run=False, remove=False, implicit=True,
+            enable_acl=False,
         )
 
     def test_no_lke_flag_skips_lke_update(self, monkeypatch):
@@ -675,6 +694,34 @@ class TestCliDefaultLkeBehavior:
         mock_remove_fw.assert_called_once()
         mock_update_lke.assert_called_once_with(
             debug=False, quiet=False, dry_run=False, remove=True, implicit=True,
+            enable_acl=False,
+        )
+
+    def test_enable_flags_propagate_to_implicit_updates(self, monkeypatch):
+        """The enable switches reach the implicit LKE and database updates too."""
+        mock_load = mock.MagicMock(return_value=("12345", "Label"))
+        mock_update_fw = mock.MagicMock()
+        mock_update_lke = mock.MagicMock()
+        mock_update_db = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_fw)
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update_lke)
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update_db)
+        monkeypatch.setattr(
+            sys, "argv",
+            ["acc-fwu", "--lke-enable-acl", "--db-enable-firewall"],
+        )
+
+        main()
+
+        mock_update_lke.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, implicit=True,
+            enable_acl=True,
+        )
+        mock_update_db.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, implicit=True,
+            enable_firewall=True,
         )
 
 
@@ -699,6 +746,7 @@ class TestCliDefaultDatabaseBehavior:
         mock_update_fw.assert_called_once()
         mock_update_db.assert_called_once_with(
             debug=False, quiet=False, dry_run=False, remove=False, implicit=True,
+            enable_firewall=False,
         )
 
     def test_no_database_flag_skips_database_update(self, monkeypatch):
@@ -737,6 +785,7 @@ class TestCliDefaultDatabaseBehavior:
         mock_remove_fw.assert_called_once()
         mock_update_db.assert_called_once_with(
             debug=False, quiet=False, dry_run=False, remove=True, implicit=True,
+            enable_firewall=False,
         )
 
 
@@ -755,7 +804,7 @@ class TestCliDatabaseFlag:
         main()
 
         mock_update.assert_called_once_with(
-            debug=False, quiet=False, dry_run=False, remove=False,
+            debug=False, quiet=False, dry_run=False, remove=False, enable_firewall=False,
         )
         mock_update_fw.assert_not_called()
 
@@ -768,7 +817,7 @@ class TestCliDatabaseFlag:
         main()
 
         mock_update.assert_called_once_with(
-            debug=False, quiet=False, dry_run=False, remove=True,
+            debug=False, quiet=False, dry_run=False, remove=True, enable_firewall=False,
         )
 
     def test_database_dry_run_quiet(self, monkeypatch):
@@ -780,7 +829,19 @@ class TestCliDatabaseFlag:
         main()
 
         mock_update.assert_called_once_with(
-            debug=False, quiet=True, dry_run=True, remove=False,
+            debug=False, quiet=True, dry_run=True, remove=False, enable_firewall=False,
+        )
+
+    def test_db_enable_firewall_flag_propagates(self, monkeypatch):
+        """--database --db-enable-firewall passes enable_firewall=True."""
+        mock_update = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--database", "--db-enable-firewall"])
+
+        main()
+
+        mock_update.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, enable_firewall=True,
         )
 
     def test_database_list_shows_databases_and_exits(self, monkeypatch, capsys):

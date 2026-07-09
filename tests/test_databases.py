@@ -166,6 +166,38 @@ class TestApplyIpToAllowList:
         assert original == ["1.1.1.1/32"]
         assert new_list != original
 
+    def test_enable_firewall_strips_open_ranges(self):
+        new_list, changed, already = _apply_ip_to_allow_list(
+            ["0.0.0.0/0", "::/0"], "2.2.2.2/32", remove=False, enable_firewall=True,
+        )
+        assert changed is True
+        assert already is False
+        assert new_list == ["2.2.2.2/32"]
+
+    def test_enable_firewall_is_change_even_if_ip_present(self):
+        """An open allow_list already containing the IP still changes: it locks down."""
+        new_list, changed, already = _apply_ip_to_allow_list(
+            ["2.2.2.2/32", "0.0.0.0/0"], "2.2.2.2/32", remove=False, enable_firewall=True,
+        )
+        assert changed is True
+        assert already is False
+        assert new_list == ["2.2.2.2/32"]
+
+    def test_enable_firewall_noop_when_already_locked_down(self):
+        _, changed, already = _apply_ip_to_allow_list(
+            ["2.2.2.2/32"], "2.2.2.2/32", remove=False, enable_firewall=True,
+        )
+        assert changed is False
+        assert already is True
+
+    def test_enable_firewall_ignored_in_remove_mode(self):
+        """--db-enable-firewall must not strip open ranges while removing an IP."""
+        new_list, changed, _ = _apply_ip_to_allow_list(
+            ["2.2.2.2/32", "0.0.0.0/0"], "2.2.2.2/32", remove=True, enable_firewall=True,
+        )
+        assert changed is True
+        assert new_list == ["0.0.0.0/0"]
+
 
 class TestUpdateAllDatabaseAcls:
     def _setup_common(self, monkeypatch, databases, ip="9.9.9.9"):
@@ -346,6 +378,59 @@ class TestUpdateAllDatabaseAcls:
         assert put_mock.call_args[0][1] == "mysql"
         captured = capsys.readouterr()
         assert "unsupported engine" in captured.err
+
+    def test_enable_firewall_strips_open_range(self, monkeypatch, capsys):
+        databases = [{"id": 1, "label": "primary", "engine": "mysql",
+                      "allow_list": ["0.0.0.0/0"]}]
+        put_mock = self._setup_common(monkeypatch, databases)
+
+        counts = update_all_database_acls(quiet=False, enable_firewall=True)
+
+        assert counts["changed"] == 1
+        sent = put_mock.call_args[0][2]
+        assert "0.0.0.0/0" not in sent
+        assert "9.9.9.9/32" in sent
+        captured = capsys.readouterr()
+        assert "Removed open range(s) (0.0.0.0/0)" in captured.out
+
+    def test_enable_firewall_locks_down_even_when_ip_present(self, monkeypatch, capsys):
+        databases = [{"id": 1, "label": "primary", "engine": "mysql",
+                      "allow_list": ["9.9.9.9/32", "0.0.0.0/0", "::/0"]}]
+        put_mock = self._setup_common(monkeypatch, databases)
+
+        counts = update_all_database_acls(quiet=False, enable_firewall=True)
+
+        assert counts["changed"] == 1
+        put_mock.assert_called_once()
+        sent = put_mock.call_args[0][2]
+        assert sent == ["9.9.9.9/32"]
+        captured = capsys.readouterr()
+        # IP already present, so only the lockdown line, no "Added".
+        assert "Removed open range(s) (0.0.0.0/0, ::/0)" in captured.out
+        assert "Added" not in captured.out
+
+    def test_enable_firewall_noop_without_open_ranges(self, monkeypatch):
+        databases = [{"id": 1, "label": "primary", "engine": "mysql",
+                      "allow_list": ["9.9.9.9/32"]}]
+        put_mock = self._setup_common(monkeypatch, databases)
+
+        counts = update_all_database_acls(quiet=True, enable_firewall=True)
+
+        assert counts["unchanged"] == 1
+        assert counts["changed"] == 0
+        put_mock.assert_not_called()
+
+    def test_enable_firewall_dry_run_does_not_put(self, monkeypatch, capsys):
+        databases = [{"id": 1, "label": "primary", "engine": "mysql",
+                      "allow_list": ["0.0.0.0/0"]}]
+        put_mock = self._setup_common(monkeypatch, databases)
+
+        counts = update_all_database_acls(dry_run=True, enable_firewall=True)
+
+        put_mock.assert_not_called()
+        assert counts["changed"] == 1
+        captured = capsys.readouterr()
+        assert "[DRY RUN] Would remove open range(s) (0.0.0.0/0)" in captured.out
 
     def test_put_failure_is_counted(self, monkeypatch, capsys):
         databases = [{"id": 1, "label": "primary", "engine": "mysql",
