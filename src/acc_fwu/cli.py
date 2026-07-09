@@ -88,6 +88,7 @@ def _handle_lke_command(args):
         quiet=args.quiet,
         dry_run=args.dry_run,
         remove=args.remove,
+        enable_acl=args.lke_enable_acl,
     )
 
 
@@ -126,6 +127,7 @@ def _handle_database_command(args):
         quiet=args.quiet,
         dry_run=args.dry_run,
         remove=args.remove,
+        enable_firewall=args.db_enable_firewall,
     )
 
 
@@ -195,6 +197,10 @@ def _create_parser():
                         help="Skip the default LKE/LKE-E Control Plane ACL update. "
                              "By default, acc-fwu updates firewall rules, LKE ACLs, "
                              "and managed database allow_lists.")
+    parser.add_argument("--lke-enable-acl", action="store_true",
+                        help="When updating LKE/LKE-E clusters, also enable the Control "
+                             "Plane ACL (firewall) if it is currently disabled, so the "
+                             "added IP is actually enforced. No effect with -r/--remove.")
     parser.add_argument("--database", action="store_true",
                         help="Target managed database allow_lists; skip firewall rules. "
                              "Adds (or removes with -r) your current public IP to every "
@@ -203,6 +209,10 @@ def _create_parser():
                         help="Skip the default managed database allow_list update. "
                              "By default, acc-fwu updates firewall rules, LKE ACLs, "
                              "and managed database allow_lists.")
+    parser.add_argument("--db-enable-firewall", action="store_true",
+                        help="When updating managed databases, remove open ranges "
+                             "(0.0.0.0/0, ::/0) from the allow_list so only "
+                             "explicitly-allowed IPs can connect. No effect with -r/--remove.")
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="Suppress output messages (useful for cron/scripting).")
     parser.add_argument("--dry-run", action="store_true",
@@ -252,9 +262,11 @@ def _run_implicit_batch_updates(args):
     }
     failed = 0
     if not args.no_lke:
-        failed += _failed_count(update_all_lke_acls(**common))
+        failed += _failed_count(update_all_lke_acls(enable_acl=args.lke_enable_acl, **common))
     if not args.no_database:
-        failed += _failed_count(update_all_database_acls(**common))
+        failed += _failed_count(
+            update_all_database_acls(enable_firewall=args.db_enable_firewall, **common)
+        )
     return failed
 
 

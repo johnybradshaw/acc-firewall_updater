@@ -162,6 +162,45 @@ class TestApplyIpToAcl:
         assert new_acl["enabled"] is False
         assert new_acl["addresses"]["ipv6"] == ["::/0"]
 
+    def test_enable_acl_flips_disabled_when_adding(self):
+        acl = {"enabled": False, "addresses": {"ipv4": [], "ipv6": []}}
+        new_acl, changed, already = _apply_ip_to_acl(
+            acl, "2.2.2.2/32", remove=False, enable_acl=True,
+        )
+        assert changed is True
+        assert already is False
+        assert new_acl["enabled"] is True
+        assert "2.2.2.2/32" in new_acl["addresses"]["ipv4"]
+
+    def test_enable_acl_is_change_even_if_ip_present(self):
+        """A disabled ACL that already contains the IP still changes: enabling it."""
+        acl = {"enabled": False, "addresses": {"ipv4": ["2.2.2.2/32"], "ipv6": []}}
+        new_acl, changed, already = _apply_ip_to_acl(
+            acl, "2.2.2.2/32", remove=False, enable_acl=True,
+        )
+        assert changed is True
+        assert already is False
+        assert new_acl["enabled"] is True
+        assert new_acl["addresses"]["ipv4"] == ["2.2.2.2/32"]
+
+    def test_enable_acl_noop_when_already_enabled_and_present(self):
+        acl = {"enabled": True, "addresses": {"ipv4": ["2.2.2.2/32"], "ipv6": []}}
+        _, changed, already = _apply_ip_to_acl(
+            acl, "2.2.2.2/32", remove=False, enable_acl=True,
+        )
+        assert changed is False
+        assert already is True
+
+    def test_enable_acl_ignored_in_remove_mode(self):
+        """--lke-enable-acl must not re-enable a disabled ACL while removing an IP."""
+        acl = {"enabled": False, "addresses": {"ipv4": ["2.2.2.2/32"], "ipv6": []}}
+        new_acl, changed, _ = _apply_ip_to_acl(
+            acl, "2.2.2.2/32", remove=True, enable_acl=True,
+        )
+        assert changed is True
+        assert new_acl["enabled"] is False
+        assert "2.2.2.2/32" not in new_acl["addresses"]["ipv4"]
+
 
 class TestUpdateAllLkeAcls:
     def _setup_common(self, monkeypatch, clusters, acls_by_id, ip="9.9.9.9"):
@@ -266,6 +305,50 @@ class TestUpdateAllLkeAcls:
         captured = capsys.readouterr()
         assert "Warning" in captured.out
         assert "disabled" in captured.out
+
+    def test_enable_acl_enables_disabled_cluster(self, monkeypatch, capsys):
+        clusters = [{"id": 1, "label": "std", "tier": "standard"}]
+        acls = {1: {"enabled": False, "addresses": {"ipv4": [], "ipv6": []}}}
+        put_mock = self._setup_common(monkeypatch, clusters, acls)
+
+        counts = update_all_lke_acls(quiet=False, enable_acl=True)
+
+        assert counts["changed"] == 1
+        sent = put_mock.call_args[0][1]
+        assert sent["enabled"] is True
+        assert "9.9.9.9/32" in sent["addresses"]["ipv4"]
+        captured = capsys.readouterr()
+        # No "disabled" warning when we are enabling it ourselves.
+        assert "Warning" not in captured.out
+        assert "Enabled Control Plane ACL" in captured.out
+
+    def test_enable_acl_flips_even_when_ip_present(self, monkeypatch, capsys):
+        clusters = [{"id": 1, "label": "std", "tier": "standard"}]
+        acls = {1: {"enabled": False, "addresses": {"ipv4": ["9.9.9.9/32"], "ipv6": []}}}
+        put_mock = self._setup_common(monkeypatch, clusters, acls)
+
+        counts = update_all_lke_acls(quiet=False, enable_acl=True)
+
+        assert counts["changed"] == 1
+        put_mock.assert_called_once()
+        sent = put_mock.call_args[0][1]
+        assert sent["enabled"] is True
+        captured = capsys.readouterr()
+        # IP was already present, so no "Added" line, only the enable line.
+        assert "Enabled Control Plane ACL" in captured.out
+        assert "Added" not in captured.out
+
+    def test_enable_acl_dry_run_does_not_put(self, monkeypatch, capsys):
+        clusters = [{"id": 1, "label": "std", "tier": "standard"}]
+        acls = {1: {"enabled": False, "addresses": {"ipv4": [], "ipv6": []}}}
+        put_mock = self._setup_common(monkeypatch, clusters, acls)
+
+        counts = update_all_lke_acls(dry_run=True, enable_acl=True)
+
+        put_mock.assert_not_called()
+        assert counts["changed"] == 1
+        captured = capsys.readouterr()
+        assert "[DRY RUN] Would enable Control Plane ACL" in captured.out
 
     def test_get_acl_failure_is_counted(self, monkeypatch, capsys):
         clusters = [

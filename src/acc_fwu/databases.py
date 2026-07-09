@@ -28,6 +28,12 @@ LINODE_DATABASES_LIST_URL = f"{LINODE_DATABASES_BASE_URL}/instances"
 # in the listing but not here will be reported as a skip.
 SUPPORTED_DB_ENGINES = ("mysql", "postgresql")
 
+# Managed databases have no explicit firewall on/off toggle: the allow_list is
+# the firewall. An allow_list containing one of these "open to the world"
+# ranges effectively disables it. --db-enable-firewall strips these so only
+# explicitly-allowed IPs can connect.
+OPEN_ALLOW_LIST_RANGES = ("0.0.0.0/0", "::/0")
+
 
 def _auth_headers():
     """Build authorization headers for Linode API requests."""
@@ -125,9 +131,24 @@ def _format_database_label(database):
     return format_target(type_name, database.get("label", ""), database["id"])
 
 
-def _apply_ip_to_allow_list(allow_list, ip_with_mask, remove):
+def _has_open_range(allow_list):
+    """True if the allow_list contains an open-to-the-world range."""
+    return any(ip in OPEN_ALLOW_LIST_RANGES for ip in (allow_list or []))
+
+
+def _apply_ip_to_allow_list(allow_list, ip_with_mask, remove, enable_firewall=False):
     """
     Apply the IP change to an allow_list in a copy-safe manner.
+
+    Args:
+        allow_list (list): The current allow_list.
+        ip_with_mask (str): The address to add/remove (e.g. ``1.2.3.4/32``).
+        remove (bool): Remove the address instead of adding it.
+        enable_firewall (bool): When adding, also strip open-to-the-world ranges
+            (``0.0.0.0/0``, ``::/0``) so the database is only reachable from
+            explicitly-allowed IPs. Stripping an open range is itself a change,
+            so a database whose IP is already present but whose allow_list is
+            still open counts as ``changed``. Ignored in remove mode.
 
     Returns:
         tuple: (new_allow_list, changed, already_in_state)
@@ -142,10 +163,21 @@ def _apply_ip_to_allow_list(allow_list, ip_with_mask, remove):
         if ip_with_mask not in new_list:
             return new_list, False, True
         new_list = [ip for ip in new_list if ip != ip_with_mask]
-    else:
-        if ip_with_mask in new_list:
-            return new_list, False, True
+        return new_list, True, False
+
+    address_changed = ip_with_mask not in new_list
+    if address_changed:
         new_list.append(ip_with_mask)
+
+    lockdown_changed = False
+    if enable_firewall:
+        filtered = [ip for ip in new_list if ip not in OPEN_ALLOW_LIST_RANGES]
+        if len(filtered) != len(new_list):
+            new_list = filtered
+            lockdown_changed = True
+
+    if not address_changed and not lockdown_changed:
+        return new_list, False, True
 
     return new_list, True, False
 
@@ -201,7 +233,24 @@ def _check_skip_reason(database):
     return None
 
 
-def _process_database(database, ip_with_mask, remove, debug, quiet, dry_run, headers):
+def _report_database_change(db_label, ip_with_mask, remove, address_changed,
+                            locked_ranges, quiet, dry_run):
+    """Print the per-database result line(s) for an applied change."""
+    if quiet:
+        return
+    if address_changed:
+        line = (format_dry_run(ip_with_mask, db_label, remove=remove)
+                if dry_run
+                else format_result(ip_with_mask, db_label, remove=remove))
+        print(line)
+    if locked_ranges:
+        prefix = "[DRY RUN] Would remove" if dry_run else "Removed"
+        ranges = ", ".join(locked_ranges)
+        print(f"{prefix} open range(s) ({ranges}) from {db_label}")
+
+
+def _process_database(database, ip_with_mask, remove, debug, quiet, dry_run, headers,
+                      enable_firewall=False):
     """Apply the IP change to a single database's allow_list."""
     db_label = _format_database_label(database)
 
@@ -217,25 +266,36 @@ def _process_database(database, ip_with_mask, remove, debug, quiet, dry_run, hea
     if debug:
         print(f"Current allow_list for {db_label}: {allow_list}")
 
-    new_list, changed, _ = _apply_ip_to_allow_list(allow_list, ip_with_mask, remove)
+    new_list, changed, _ = _apply_ip_to_allow_list(
+        allow_list, ip_with_mask, remove, enable_firewall=enable_firewall,
+    )
     if not changed:
         _report_unchanged(db_label, ip_with_mask, remove, quiet)
         return "unchanged"
 
+    was_present = ip_with_mask in (allow_list or [])
+    address_changed = was_present if remove else not was_present
+    locked_ranges = (
+        [r for r in OPEN_ALLOW_LIST_RANGES if r in (allow_list or [])]
+        if enable_firewall and not remove
+        else []
+    )
+
     if dry_run:
-        if not quiet:
-            print(format_dry_run(ip_with_mask, db_label, remove=remove))
+        _report_database_change(db_label, ip_with_mask, remove,
+                                address_changed, locked_ranges, quiet, dry_run=True)
         return "changed"
 
     if not _commit_allow_list_change(database, db_label, new_list, headers, debug):
         return "failed"
 
-    if not quiet:
-        print(format_result(ip_with_mask, db_label, remove=remove))
+    _report_database_change(db_label, ip_with_mask, remove,
+                            address_changed, locked_ranges, quiet, dry_run=False)
     return "changed"
 
 
-def update_all_database_acls(debug=False, quiet=False, dry_run=False, remove=False, implicit=False):
+def update_all_database_acls(debug=False, quiet=False, dry_run=False, remove=False,
+                             implicit=False, enable_firewall=False):
     """
     Add (or remove) the current public IP on every managed database's allow_list.
 
@@ -248,6 +308,9 @@ def update_all_database_acls(debug=False, quiet=False, dry_run=False, remove=Fal
             +database run (i.e., user did not pass ``--database`` explicitly).
             Suppresses the "No managed databases found" notice so users without
             any databases see no extra output.
+        enable_firewall (bool): When adding, strip open-to-the-world ranges
+            (``0.0.0.0/0``, ``::/0``) from each database's allow_list so only
+            explicitly-allowed IPs can connect. No effect in remove mode.
 
     Returns:
         dict: Summary counts: ``changed``, ``unchanged``, ``skipped``,
@@ -269,7 +332,8 @@ def update_all_database_acls(debug=False, quiet=False, dry_run=False, remove=Fal
 
     counts = {"changed": 0, "unchanged": 0, "skipped": 0, "failed": 0, "total": len(databases)}
     for database in databases:
-        result = _process_database(database, ip_with_mask, remove, debug, quiet, dry_run, headers)
+        result = _process_database(database, ip_with_mask, remove, debug, quiet, dry_run,
+                                   headers, enable_firewall=enable_firewall)
         counts[result] = counts.get(result, 0) + 1
 
     if not quiet:

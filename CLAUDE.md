@@ -14,8 +14,8 @@ This file provides guidance for AI assistants working with the `acc-fwu` (Akamai
 - Input validation for security
 - Interactive firewall selection (lists available firewalls)
 - Add mode for multiple IP addresses (travel use case)
-- LKE / LKE-E Control Plane ACL automation runs by default alongside firewall updates (`--no-lke` to skip, `--lke` for LKE-only mode)
-- Managed Database (MySQL/PostgreSQL) `allow_list` automation runs by default alongside firewall updates (`--no-database` to skip, `--database` for database-only mode)
+- LKE / LKE-E Control Plane ACL automation runs by default alongside firewall updates (`--no-lke` to skip, `--lke` for LKE-only mode, `--lke-enable-acl` to enable a disabled Control Plane ACL as the IP is added)
+- Managed Database (MySQL/PostgreSQL) `allow_list` automation runs by default alongside firewall updates (`--no-database` to skip, `--database` for database-only mode, `--db-enable-firewall` to strip open ranges so the allow_list actually restricts access)
 - Prints the active firewall ID/label when loaded from config so the user sees which firewall is being touched
 
 ## Codebase Structure
@@ -292,9 +292,16 @@ The tool uses the Linode API v4:
   cluster uniformly.
 - `put_lke_acl(cluster_id, acl, headers=None, debug=False)` - Wraps the ACL in
   the `{"acl": {...}}` envelope the PUT endpoint expects.
-- `update_all_lke_acls(debug, quiet, dry_run, remove, implicit=False)` -
+- `_apply_ip_to_acl(acl, ip_with_mask, remove, enable_acl=False)` - Pure address
+  math. When `enable_acl=True` and adding, a disabled ACL is flipped
+  `enabled: true`; that flip counts as a change on its own (so a disabled ACL
+  that already contains the IP is still `changed`). `enable_acl` is ignored in
+  remove mode.
+- `update_all_lke_acls(debug, quiet, dry_run, remove, implicit=False, enable_acl=False)` -
   Orchestrator. Iterates clusters and applies `_apply_ip_to_acl` to add/remove
-  the current public IP. Per-cluster fetch/PUT failures are printed to stderr
+  the current public IP. `enable_acl` (wired from `--lke-enable-acl`) enables a
+  disabled Control Plane ACL as the IP is added and suppresses the
+  "ACL is disabled" warning for that cluster. Per-cluster fetch/PUT failures are printed to stderr
   (even in quiet mode) and counted (`failed`) but do not abort the batch. When
   `implicit=True` (the default firewall+LKE path driven by `main()`), the
   "No LKE clusters found" notice is suppressed so users without any clusters
@@ -307,17 +314,28 @@ The tool uses the Linode API v4:
 - `SUPPORTED_DB_ENGINES = ("mysql", "postgresql")` - engines whose `allow_list`
   this tool knows how to update; other engines surfaced by the listing endpoint
   are reported as a per-database skip (`skipped`).
+- `OPEN_ALLOW_LIST_RANGES = ("0.0.0.0/0", "::/0")` - "open to the world" ranges.
+  Managed databases have no firewall on/off toggle — the `allow_list` is the
+  firewall, and one of these entries effectively disables it.
+  `--db-enable-firewall` strips them.
 - `list_databases()` - Paginated list of every managed database on the account
   via `/databases/instances`. The list response already contains `allow_list`,
   so the orchestrator does not need a per-database GET.
 - `put_database_allow_list(database_id, engine, allow_list, headers=None,
   debug=False)` - PUTs to `/databases/{engine}/instances/{database_id}` with the
   `{"allow_list": [...]}` body. The new list overwrites the existing one.
-- `_apply_ip_to_allow_list(allow_list, ip_with_mask, remove)` - Returns a fresh
-  list (does not mutate the input) plus `(changed, already_in_state)` flags.
-- `update_all_database_acls(debug, quiet, dry_run, remove, implicit=False)` -
+- `_apply_ip_to_allow_list(allow_list, ip_with_mask, remove, enable_firewall=False)`
+  - Returns a fresh list (does not mutate the input) plus
+  `(changed, already_in_state)` flags. When `enable_firewall=True` and adding,
+  open ranges (`OPEN_ALLOW_LIST_RANGES`) are stripped; stripping counts as a
+  change on its own. The IP is always appended before open ranges are removed,
+  so the resulting list is never empty. `enable_firewall` is ignored in remove
+  mode.
+- `update_all_database_acls(debug, quiet, dry_run, remove, implicit=False, enable_firewall=False)` -
   Orchestrator. Iterates databases and applies `_apply_ip_to_allow_list` to
-  add/remove the current public IP. Per-database PUT failures are printed to
+  add/remove the current public IP. `enable_firewall` (wired from
+  `--db-enable-firewall`) strips open ranges so the allow_list actually
+  restricts access. Per-database PUT failures are printed to
   stderr (even in quiet mode) and counted (`failed`); unsupported engines and
   **VPC-attached databases** (`private_network` is non-null) are expected
   conditions, printed to stderr unless `--quiet` and counted (`skipped`).
