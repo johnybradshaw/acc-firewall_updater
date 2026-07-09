@@ -131,11 +131,6 @@ def _format_database_label(database):
     return format_target(type_name, database.get("label", ""), database["id"])
 
 
-def _has_open_range(allow_list):
-    """True if the allow_list contains an open-to-the-world range."""
-    return any(ip in OPEN_ALLOW_LIST_RANGES for ip in (allow_list or []))
-
-
 def _apply_ip_to_allow_list(allow_list, ip_with_mask, remove, enable_firewall=False):
     """
     Apply the IP change to an allow_list in a copy-safe manner.
