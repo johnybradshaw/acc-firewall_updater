@@ -210,8 +210,8 @@ class TestCliNewOptions:
             "12345", "Default-Label", debug=True, quiet=False, dry_run=False, add_ip=False
         )
 
-    def test_main_quiet_mode_suppresses_config_error(self, monkeypatch, capsys):
-        """Test that --quiet suppresses config file not found message."""
+    def test_main_quiet_mode_still_reports_config_error(self, monkeypatch, capsys):
+        """--quiet silences stdout, but the fatal error still reaches stderr."""
         mock_load_config = mock.MagicMock(side_effect=FileNotFoundError)
 
         monkeypatch.setattr("acc_fwu.cli.load_config", mock_load_config)
@@ -222,8 +222,9 @@ class TestCliNewOptions:
 
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
-        # Output should be empty in quiet mode
+        # stdout stays empty in quiet mode, but the diagnostic goes to stderr
         assert captured.out == ""
+        assert "Error:" in captured.err
 
 
 class TestCliValidation:
@@ -509,7 +510,9 @@ class TestCliLkeFlag:
 
         main()
 
-        mock_update.assert_called_once_with(debug=False, quiet=False, dry_run=False, remove=False)
+        mock_update.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, enable_acl=False,
+        )
 
     def test_main_with_lke_and_remove(self, monkeypatch):
         """Test --lke -r passes remove=True."""
@@ -519,7 +522,9 @@ class TestCliLkeFlag:
 
         main()
 
-        mock_update.assert_called_once_with(debug=False, quiet=False, dry_run=False, remove=True)
+        mock_update.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=True, enable_acl=False,
+        )
 
     def test_main_with_lke_dry_run_and_quiet(self, monkeypatch):
         """Test --lke honors --dry-run and --quiet."""
@@ -529,7 +534,21 @@ class TestCliLkeFlag:
 
         main()
 
-        mock_update.assert_called_once_with(debug=False, quiet=True, dry_run=True, remove=False)
+        mock_update.assert_called_once_with(
+            debug=False, quiet=True, dry_run=True, remove=False, enable_acl=False,
+        )
+
+    def test_lke_enable_acl_flag_propagates(self, monkeypatch):
+        """--lke --lke-enable-acl passes enable_acl=True."""
+        mock_update = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke", "--lke-enable-acl"])
+
+        main()
+
+        mock_update.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, enable_acl=True,
+        )
 
     def test_main_with_lke_list(self, monkeypatch, capsys):
         """Test --lke --list shows LKE clusters and exits without touching ACLs."""
@@ -636,6 +655,7 @@ class TestCliDefaultLkeBehavior:
         mock_update_fw.assert_called_once()
         mock_update_lke.assert_called_once_with(
             debug=False, quiet=False, dry_run=False, remove=False, implicit=True,
+            enable_acl=False,
         )
 
     def test_no_lke_flag_skips_lke_update(self, monkeypatch):
@@ -674,6 +694,34 @@ class TestCliDefaultLkeBehavior:
         mock_remove_fw.assert_called_once()
         mock_update_lke.assert_called_once_with(
             debug=False, quiet=False, dry_run=False, remove=True, implicit=True,
+            enable_acl=False,
+        )
+
+    def test_enable_flags_propagate_to_implicit_updates(self, monkeypatch):
+        """The enable switches reach the implicit LKE and database updates too."""
+        mock_load = mock.MagicMock(return_value=("12345", "Label"))
+        mock_update_fw = mock.MagicMock()
+        mock_update_lke = mock.MagicMock()
+        mock_update_db = mock.MagicMock()
+
+        monkeypatch.setattr("acc_fwu.cli.load_config", mock_load)
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule", mock_update_fw)
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls", mock_update_lke)
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update_db)
+        monkeypatch.setattr(
+            sys, "argv",
+            ["acc-fwu", "--lke-enable-acl", "--db-enable-firewall"],
+        )
+
+        main()
+
+        mock_update_lke.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, implicit=True,
+            enable_acl=True,
+        )
+        mock_update_db.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, implicit=True,
+            enable_firewall=True,
         )
 
 
@@ -698,6 +746,7 @@ class TestCliDefaultDatabaseBehavior:
         mock_update_fw.assert_called_once()
         mock_update_db.assert_called_once_with(
             debug=False, quiet=False, dry_run=False, remove=False, implicit=True,
+            enable_firewall=False,
         )
 
     def test_no_database_flag_skips_database_update(self, monkeypatch):
@@ -736,6 +785,7 @@ class TestCliDefaultDatabaseBehavior:
         mock_remove_fw.assert_called_once()
         mock_update_db.assert_called_once_with(
             debug=False, quiet=False, dry_run=False, remove=True, implicit=True,
+            enable_firewall=False,
         )
 
 
@@ -754,7 +804,7 @@ class TestCliDatabaseFlag:
         main()
 
         mock_update.assert_called_once_with(
-            debug=False, quiet=False, dry_run=False, remove=False,
+            debug=False, quiet=False, dry_run=False, remove=False, enable_firewall=False,
         )
         mock_update_fw.assert_not_called()
 
@@ -767,7 +817,7 @@ class TestCliDatabaseFlag:
         main()
 
         mock_update.assert_called_once_with(
-            debug=False, quiet=False, dry_run=False, remove=True,
+            debug=False, quiet=False, dry_run=False, remove=True, enable_firewall=False,
         )
 
     def test_database_dry_run_quiet(self, monkeypatch):
@@ -779,7 +829,19 @@ class TestCliDatabaseFlag:
         main()
 
         mock_update.assert_called_once_with(
-            debug=False, quiet=True, dry_run=True, remove=False,
+            debug=False, quiet=True, dry_run=True, remove=False, enable_firewall=False,
+        )
+
+    def test_db_enable_firewall_flag_propagates(self, monkeypatch):
+        """--database --db-enable-firewall passes enable_firewall=True."""
+        mock_update = mock.MagicMock()
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls", mock_update)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--database", "--db-enable-firewall"])
+
+        main()
+
+        mock_update.assert_called_once_with(
+            debug=False, quiet=False, dry_run=False, remove=False, enable_firewall=True,
         )
 
     def test_database_list_shows_databases_and_exits(self, monkeypatch, capsys):
@@ -852,3 +914,77 @@ class TestCliListTableFormatting:
                 break
         else:
             pytest.fail(f"long label {long_label!r} not found in output:\n{captured.out}")
+
+
+class TestCliExitCodes:
+    """Tests for exit code 2 when batch updates report failed targets."""
+
+    FAILED = {"changed": 0, "unchanged": 0, "skipped": 0, "failed": 1, "total": 1}
+    CLEAN = {"changed": 1, "unchanged": 0, "skipped": 0, "failed": 0, "total": 1}
+
+    def _setup_firewall_path(self, monkeypatch, lke_counts, db_counts):
+        monkeypatch.setattr("acc_fwu.cli.load_config",
+                            mock.MagicMock(return_value=("12345", "Label")))
+        monkeypatch.setattr("acc_fwu.cli.update_firewall_rule",
+                            mock.MagicMock(return_value=self.CLEAN))
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls",
+                            mock.MagicMock(return_value=lke_counts))
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls",
+                            mock.MagicMock(return_value=db_counts))
+
+    def test_implicit_lke_failure_exits_2(self, monkeypatch):
+        """A failed cluster in the implicit LKE batch must exit 2, not 0."""
+        self._setup_firewall_path(monkeypatch, self.FAILED, self.CLEAN)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 2
+
+    def test_implicit_database_failure_exits_2(self, monkeypatch):
+        """A failed database in the implicit batch must exit 2, not 0."""
+        self._setup_firewall_path(monkeypatch, self.CLEAN, self.FAILED)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 2
+
+    def test_all_clean_exits_normally(self, monkeypatch):
+        """No failures anywhere means a normal (0) exit."""
+        self._setup_firewall_path(monkeypatch, self.CLEAN, self.CLEAN)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu"])
+
+        main()  # must not raise SystemExit
+
+    def test_skipped_targets_do_not_fail_the_run(self, monkeypatch):
+        """Skipped databases (VPC/unsupported engine) are not failures."""
+        skipped = {"changed": 0, "unchanged": 0, "skipped": 2, "failed": 0, "total": 2}
+        self._setup_firewall_path(monkeypatch, self.CLEAN, skipped)
+        monkeypatch.setattr(sys, "argv", ["acc-fwu"])
+
+        main()  # must not raise SystemExit
+
+    def test_explicit_lke_failure_exits_2(self, monkeypatch):
+        """--lke with a failed cluster must exit 2."""
+        monkeypatch.setattr("acc_fwu.cli.update_all_lke_acls",
+                            mock.MagicMock(return_value=self.FAILED))
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--lke"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 2
+
+    def test_explicit_database_failure_exits_2(self, monkeypatch):
+        """--database with a failed database must exit 2."""
+        monkeypatch.setattr("acc_fwu.cli.update_all_database_acls",
+                            mock.MagicMock(return_value=self.FAILED))
+        monkeypatch.setattr(sys, "argv", ["acc-fwu", "--database"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 2

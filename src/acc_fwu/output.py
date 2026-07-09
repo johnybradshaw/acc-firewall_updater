@@ -12,7 +12,12 @@ vocabulary is:
     noop:      "<ip> already present on <target>, no changes needed"
     dry-run:   "[DRY RUN] Would add <ip> on <target>"
     skip:      "Skipping <target>: <reason>"
-    summary:   "Done. changed=X unchanged=Y failed=Z total=W"
+    failure:   "Error on <target>: <reason>"
+    summary:   "Done. changed=X unchanged=Y skipped=S failed=Z total=W"
+
+Skips are expected conditions (unsupported engine, VPC-attached database) and
+respect --quiet; failures are unexpected API errors and are always printed so
+they reach cron logs even in quiet mode. Both belong on stderr.
 """
 
 
@@ -79,11 +84,17 @@ def format_skip(target, reason):
     return f"Skipping {target}: {reason}"
 
 
+def format_failure(target, reason):
+    """Render a failure line when an operation on a target errored."""
+    return f"Error on {target}: {reason}"
+
+
 def format_summary(counts):
     """Render the end-of-stage counter summary."""
     return (
         f"Done. changed={counts.get('changed', 0)} "
         f"unchanged={counts.get('unchanged', 0)} "
+        f"skipped={counts.get('skipped', 0)} "
         f"failed={counts.get('failed', 0)} "
         f"total={counts.get('total', 0)}"
     )

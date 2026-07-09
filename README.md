@@ -21,8 +21,8 @@ A tool to automatically update the [Akamai Connected Cloud (ACC) / Linode](https
 - Secure configuration file storage (owner-only permissions)
 - **Interactive firewall selection** - List and choose from available firewalls
 - **Add mode** - Accumulate multiple IP addresses (ideal for traveling)
-- **LKE Control Plane ACL automation** - Every run also syncs your public IP into every LKE and LKE-E cluster's Control Plane ACL (opt-out with `--no-lke`; use `--lke` for LKE-only mode)
-- **Managed Database allow_list automation** - Every run also syncs your public IP into every MySQL/PostgreSQL Managed Database `allow_list` (opt-out with `--no-database`; use `--database` for database-only mode)
+- **LKE Control Plane ACL automation** - Every run also syncs your public IP into every LKE and LKE-E cluster's Control Plane ACL (opt-out with `--no-lke`; use `--lke` for LKE-only mode; enable a disabled ACL with `--lke-enable-acl`)
+- **Managed Database allow_list automation** - Every run also syncs your public IP into every MySQL/PostgreSQL Managed Database `allow_list` (opt-out with `--no-database`; use `--database` for database-only mode; lock down open ranges with `--db-enable-firewall`)
 - **Active firewall indicator** - When the config file is used, `acc-fwu` prints the firewall ID and label it's operating on
 
 ## Prerequisites
@@ -89,7 +89,7 @@ This will:
 ### Command-Line Options
 
 ```
-usage: acc-fwu [-h] [--firewall_id FIREWALL_ID] [--label LABEL] [-d] [-r] [-a] [-l] [--lke] [--no-lke] [--database] [--no-database] [-q] [--dry-run] [-v]
+usage: acc-fwu [-h] [--firewall_id FIREWALL_ID] [--label LABEL] [-d] [-r] [-a] [-l] [--lke] [--no-lke] [--lke-enable-acl] [--database] [--no-database] [--db-enable-firewall] [-q] [--dry-run] [-v]
 
 Create, update, or remove Akamai Connected Cloud (Linode) firewall rules with your current IP address.
 
@@ -106,10 +106,16 @@ options:
                         Adds (or removes with -r) your current public IP to every cluster's ACL.
   --no-lke              Skip the default LKE/LKE-E Control Plane ACL update.
                         By default, acc-fwu updates firewall rules, LKE ACLs, and managed database allow_lists.
+  --lke-enable-acl      When updating LKE/LKE-E clusters, also enable the Control Plane ACL
+                        (firewall) if it is currently disabled, so the added IP is enforced.
+                        No effect with -r/--remove.
   --database            Target managed database allow_lists only; skip firewall rules.
                         Adds (or removes with -r) your current public IP to every managed database's allow_list.
   --no-database         Skip the default managed database allow_list update.
                         By default, acc-fwu updates firewall rules, LKE ACLs, and managed database allow_lists.
+  --db-enable-firewall  When updating managed databases, remove open ranges (0.0.0.0/0, ::/0)
+                        from the allow_list so only explicitly-allowed IPs can connect.
+                        No effect with -r/--remove.
   -q, --quiet           Suppress output messages (useful for cron/scripting).
   --dry-run             Show what would be done without making any changes.
   -v, --version         show program's version number and exit
@@ -229,6 +235,16 @@ acc-fwu --lke --dry-run
 acc-fwu --lke --remove
 ```
 
+**Enable the Control Plane ACL (firewall) as you add your IP:**
+
+By default the `enabled` state is preserved, so an IP added to a *disabled* ACL is stored but not enforced. Pass `--lke-enable-acl` to switch the firewall on for any cluster whose ACL is currently disabled, so the added IP takes effect immediately:
+
+```bash
+acc-fwu --lke --lke-enable-acl
+```
+
+This works in the default combined run too (e.g. `acc-fwu --lke-enable-acl`). It has no effect with `-r/--remove` — enabling a firewall while withdrawing your own IP would be contradictory.
+
 **Run silently in a cron job:**
 
 ```bash
@@ -277,6 +293,16 @@ acc-fwu --database --dry-run
 acc-fwu --database --remove
 ```
 
+**Lock down the firewall as you add your IP:**
+
+Managed databases have no separate firewall on/off toggle — the `allow_list` *is* the firewall, and an entry of `0.0.0.0/0` (or `::/0`) leaves it open to the whole internet. Pass `--db-enable-firewall` to strip those open ranges while adding your IP, so only explicitly-allowed addresses can connect:
+
+```bash
+acc-fwu --database --db-enable-firewall
+```
+
+This works in the default combined run too (e.g. `acc-fwu --db-enable-firewall`). It has no effect with `-r/--remove`. Because your IP is always added before the open ranges are removed, the `allow_list` is never left empty (which would block all connections).
+
 Databases on engines other than `mysql` or `postgresql` are reported as a per-database skip. Failures on individual databases are logged and counted in the final summary but do not abort the run.
 
 ### Cron Job Example
@@ -292,6 +318,16 @@ To automatically update your firewall rules (along with LKE / LKE-E Control Plan
 ```
 
 **Important**: Before using `--quiet` mode, you must have a valid configuration file (`~/.acc-fwu-config`) with your `firewall_id` and `label`. Interactive firewall selection is not available in quiet mode. Run `acc-fwu` interactively first to set up your configuration.
+
+### Exit Codes
+
+`acc-fwu` reports its outcome through the exit code, so cron and scripts can detect problems:
+
+- `0` — success (including no-op runs where everything was already up to date)
+- `1` — fatal error (invalid input, missing configuration, API/authentication failure)
+- `2` — the run completed, but one or more targets failed to update (e.g. a PUT to one LKE cluster or database errored while the others succeeded)
+
+Failures are always printed to `stderr`, even with `--quiet` — quiet mode silences informational output, not diagnostics — so failed cron runs leave a trail in your logs or cron mail. Expected skips (unsupported database engines, VPC-attached databases) are reported on `stderr` as `skipped` in the summary, respect `--quiet`, and do not affect the exit code.
 
 ## Configuration File
 

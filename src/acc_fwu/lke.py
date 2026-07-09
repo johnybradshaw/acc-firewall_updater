@@ -1,3 +1,5 @@
+import sys
+
 import requests
 
 from .firewall import (
@@ -10,9 +12,9 @@ from .firewall import (
 from .output import (
     format_batch_preamble,
     format_dry_run,
+    format_failure,
     format_noop,
     format_result,
-    format_skip,
     format_summary,
     format_target,
 )
@@ -139,9 +141,19 @@ def _format_cluster_label(cluster):
     return format_target(type_name, cluster.get("label", ""), cluster["id"])
 
 
-def _apply_ip_to_acl(acl, ip_with_mask, remove):
+def _apply_ip_to_acl(acl, ip_with_mask, remove, enable_acl=False):
     """
     Apply the IP change to an ACL dict in-place-safe manner.
+
+    Args:
+        acl (dict): The current normalized ACL.
+        ip_with_mask (str): The address to add/remove (e.g. ``1.2.3.4/32``).
+        remove (bool): Remove the address instead of adding it.
+        enable_acl (bool): When adding, also flip ``enabled`` to True if the
+            Control Plane ACL is currently disabled. Turning the ACL on is
+            itself a change, so a cluster whose IP is already present but whose
+            ACL is disabled still counts as ``changed``. Ignored in remove mode
+            (enabling a firewall while withdrawing your own IP is contradictory).
 
     Returns:
         tuple: (new_acl, changed, already_in_state)
@@ -152,41 +164,53 @@ def _apply_ip_to_acl(acl, ip_with_mask, remove):
     """
     ipv4 = list(acl.get("addresses", {}).get("ipv4", []))
     ipv6 = list(acl.get("addresses", {}).get("ipv6", []))
+    enabled = acl.get("enabled", False)
 
     if remove:
-        if ip_with_mask not in ipv4:
-            return acl, False, True
-        ipv4 = [ip for ip in ipv4 if ip != ip_with_mask]
+        address_changed = ip_with_mask in ipv4
+        if address_changed:
+            ipv4 = [ip for ip in ipv4 if ip != ip_with_mask]
     else:
-        if ip_with_mask in ipv4:
-            return acl, False, True
-        ipv4.append(ip_with_mask)
+        address_changed = ip_with_mask not in ipv4
+        if address_changed:
+            ipv4.append(ip_with_mask)
+
+    enable_changed = bool(enable_acl) and not remove and not enabled
+
+    if not address_changed and not enable_changed:
+        return acl, False, True
 
     new_acl = {
-        "enabled": acl.get("enabled", False),
+        "enabled": True if enable_changed else enabled,
         "addresses": {"ipv4": ipv4, "ipv6": ipv6},
     }
     return new_acl, True, False
 
 
-def _fetch_acl_safe(cluster, cluster_label, quiet, headers):
-    """Fetch ACL for a cluster, returning None on HTTP failure."""
+def _fetch_acl_safe(cluster, cluster_label, headers):
+    """Fetch ACL for a cluster, returning None on HTTP failure.
+
+    Failures always print to stderr, even in quiet mode, so cron runs
+    leave a diagnostic trail.
+    """
     try:
         return get_lke_acl(cluster["id"], headers=headers)
     except requests.RequestException as e:
-        if not quiet:
-            print(format_skip(cluster_label, f"failed to fetch ACL ({e})"))
+        print(format_failure(cluster_label, f"failed to fetch ACL ({e})"), file=sys.stderr)
         return None
 
 
-def _commit_acl_change(cluster, cluster_label, new_acl, headers, debug, quiet):
-    """PUT the updated ACL, returning True on success."""
+def _commit_acl_change(cluster, cluster_label, new_acl, headers, debug):
+    """PUT the updated ACL, returning True on success.
+
+    Failures always print to stderr, even in quiet mode, so cron runs
+    leave a diagnostic trail.
+    """
     try:
         put_lke_acl(cluster["id"], new_acl, headers=headers, debug=debug)
         return True
     except requests.RequestException as e:
-        if not quiet:
-            print(format_skip(cluster_label, f"failed to update ({e})"))
+        print(format_failure(cluster_label, f"failed to update ({e})"), file=sys.stderr)
         return False
 
 
@@ -199,41 +223,66 @@ def _report_unchanged(cluster_label, ip_with_mask, remove, quiet):
 def _maybe_warn_disabled(acl, cluster_label, remove, quiet):
     if not acl.get("enabled") and not remove and not quiet:
         print(f"Warning: Control Plane ACL is disabled on {cluster_label}; "
-              "address will be stored but not enforced until ACL is enabled.")
+              "address will be stored but not enforced until ACL is enabled "
+              "(pass --lke-enable-acl to enable it automatically).")
 
 
-def _process_cluster(cluster, ip_with_mask, remove, debug, quiet, dry_run, headers):
+def _report_cluster_change(cluster_label, ip_with_mask, remove, address_changed,
+                           enabling, quiet, dry_run):
+    """Print the per-cluster result line(s) for an applied change."""
+    if quiet:
+        return
+    if address_changed:
+        line = (format_dry_run(ip_with_mask, cluster_label, remove=remove)
+                if dry_run
+                else format_result(ip_with_mask, cluster_label, remove=remove))
+        print(line)
+    if enabling:
+        prefix = "[DRY RUN] Would enable" if dry_run else "Enabled"
+        print(f"{prefix} Control Plane ACL on {cluster_label}")
+
+
+def _process_cluster(cluster, ip_with_mask, remove, debug, quiet, dry_run, headers,
+                     enable_acl=False):
     """Apply the IP change to a single cluster's Control Plane ACL."""
     cluster_label = _format_cluster_label(cluster)
 
-    acl = _fetch_acl_safe(cluster, cluster_label, quiet, headers)
+    acl = _fetch_acl_safe(cluster, cluster_label, headers)
     if acl is None:
         return "failed"
 
     if debug:
         print(f"Current ACL for {cluster_label}: {acl}")
 
-    new_acl, changed, _ = _apply_ip_to_acl(acl, ip_with_mask, remove)
+    new_acl, changed, _ = _apply_ip_to_acl(acl, ip_with_mask, remove, enable_acl=enable_acl)
     if not changed:
         _report_unchanged(cluster_label, ip_with_mask, remove, quiet)
         return "unchanged"
 
+    was_present = ip_with_mask in acl.get("addresses", {}).get("ipv4", [])
+    address_changed = was_present if remove else not was_present
+    enabling = enable_acl and not remove and not acl.get("enabled", False)
+
     if dry_run:
-        if not quiet:
-            print(format_dry_run(ip_with_mask, cluster_label, remove=remove))
+        _report_cluster_change(cluster_label, ip_with_mask, remove,
+                               address_changed, enabling, quiet, dry_run=True)
         return "changed"
 
-    _maybe_warn_disabled(acl, cluster_label, remove, quiet)
+    # If we are not enabling the ACL ourselves, warn when it is disabled so the
+    # user knows the stored address will not be enforced yet.
+    if not enabling:
+        _maybe_warn_disabled(acl, cluster_label, remove, quiet)
 
-    if not _commit_acl_change(cluster, cluster_label, new_acl, headers, debug, quiet):
+    if not _commit_acl_change(cluster, cluster_label, new_acl, headers, debug):
         return "failed"
 
-    if not quiet:
-        print(format_result(ip_with_mask, cluster_label, remove=remove))
+    _report_cluster_change(cluster_label, ip_with_mask, remove,
+                           address_changed, enabling, quiet, dry_run=False)
     return "changed"
 
 
-def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False, implicit=False):
+def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False,
+                        implicit=False, enable_acl=False):
     """
     Add (or remove) the current public IP on every LKE/LKE-E Control Plane ACL.
 
@@ -245,9 +294,13 @@ def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False, i
         implicit (bool): True when this call is part of the default firewall+LKE
             run (i.e., user did not pass ``--lke`` explicitly). Suppresses the
             "No LKE clusters found" notice so users without LKE see no noise.
+        enable_acl (bool): When adding, enable each cluster's Control Plane ACL
+            if it is currently disabled, so the added IP is actually enforced.
+            No effect in remove mode.
 
     Returns:
-        dict: Summary counts: ``changed``, ``unchanged``, ``failed``, ``total``.
+        dict: Summary counts: ``changed``, ``unchanged``, ``skipped``,
+        ``failed``, ``total``.
     """
     headers = _auth_headers()
     clusters = list_lke_clusters()
@@ -255,16 +308,17 @@ def update_all_lke_acls(debug=False, quiet=False, dry_run=False, remove=False, i
     if not clusters:
         if not quiet and not implicit:
             print("No LKE clusters found in your Linode account.")
-        return {"changed": 0, "unchanged": 0, "failed": 0, "total": 0}
+        return {"changed": 0, "unchanged": 0, "skipped": 0, "failed": 0, "total": 0}
 
     ip_with_mask = f"{get_public_ip()}/32"
 
     if not quiet:
         print(format_batch_preamble(ip_with_mask, "LKE cluster(s)", len(clusters), remove=remove))
 
-    counts = {"changed": 0, "unchanged": 0, "failed": 0, "total": len(clusters)}
+    counts = {"changed": 0, "unchanged": 0, "skipped": 0, "failed": 0, "total": len(clusters)}
     for cluster in clusters:
-        result = _process_cluster(cluster, ip_with_mask, remove, debug, quiet, dry_run, headers)
+        result = _process_cluster(cluster, ip_with_mask, remove, debug, quiet, dry_run,
+                                  headers, enable_acl=enable_acl)
         counts[result] = counts.get(result, 0) + 1
 
     if not quiet:
