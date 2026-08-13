@@ -7,7 +7,7 @@ This document describes how to create and publish a new release of `acc-fwu`.
 The release process is largely automated via GitHub Actions. When you create a new GitHub Release, the CI/CD pipeline will:
 
 1. Run all tests and linting
-2. Perform security scans (Bandit, Snyk)
+2. Perform security scans (Bandit)
 3. Build distribution packages
 4. Sign the release with build attestation
 5. Publish to PyPI automatically
@@ -185,7 +185,7 @@ If the version on PyPI doesn't match the tag:
 - **Never** commit API tokens or secrets to the repository
 - Use GitHub's trusted publishing for PyPI uploads
 - All releases are signed with build attestation
-- Security scans (Bandit, Snyk) run before every release
+- Security scans (Bandit) run before every release; CodeQL and dependency review run as separate workflows
 
 ## Rollback
 

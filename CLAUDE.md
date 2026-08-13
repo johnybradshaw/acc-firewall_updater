@@ -199,7 +199,7 @@ pytest tests/test_cli.py::TestCliBasicOperations::test_main_with_firewall_id_and
 ### Main Pipeline (`.github/workflows/python-app.yml`)
 
 1. **Test**: Linting (flake8) + Tests (pytest)
-2. **Scan**: Security scanning (Bandit, Snyk)
+2. **Scan**: Security scanning (Bandit). CodeQL and dependency review run as separate workflows.
 3. **Build**: Creates distribution packages with build attestation
 4. **Publish**: Uploads to PyPI (only on tagged releases via trusted publishing)
 

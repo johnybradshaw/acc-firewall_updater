@@ -217,6 +217,6 @@ The project uses GitHub Actions for CI/CD. See `.github/workflows/python-app.yml
 
 The pipeline runs:
 1. **Test**: Linting with flake8 and tests with pytest
-2. **Scan**: Security scanning with Bandit and Snyk
+2. **Scan**: Security scanning with Bandit
 3. **Build**: Creates distribution packages
 4. **Publish**: Publishes to PyPI (only on tagged releases)
