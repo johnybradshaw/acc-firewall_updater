@@ -1,0 +1,35 @@
+{
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "davidanson.vscode-markdownlint",
+        "esbenp.prettier-vscode",
+        "mikestead.dotenv",
+        "redhat.vscode-yaml",
+        "usernamehw.errorlens",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/home/vscode/venv/bin/python"
+      }
+    }
+  },
+  "image": "mcr.microsoft.com/devcontainers/python:3.14-bookworm",
+  "mounts": [
+    "source=${localWorkspaceFolderBasename}-home-vscode-venv,target=/home/vscode/venv,type=volume"
+  ],
+  "name": "acc-firewall_updater",
+  "onCreateCommand": "for d in /home/vscode/venv; do mkdir -p \"$d\"; if command -v sudo >/dev/null 2>&1; then sudo chown -R \"$(id -u):$(id -g)\" \"$d\"; else chown -R \"$(id -u):$(id -g)\" \"$d\" 2>/dev/null || true; fi; done",
+  "postCreateCommand": "python -m venv /home/vscode/venv && /home/vscode/venv/bin/python -m pip install -U pip setuptools wheel build && /home/vscode/venv/bin/pip install flake8 pytest && /home/vscode/venv/bin/pip install -r requirements.txt && /home/vscode/venv/bin/pip install -e .",
+  "remoteEnv": {
+    "GITHUB_TOKEN": "${localEnv:GITHUB_TOKEN}",
+    "OP_SERVICE_ACCOUNT_TOKEN": "${localEnv:OP_SERVICE_ACCOUNT_TOKEN}"
+  },
+  "containerEnv": {
+    "PYTHONPATH": "${containerWorkspaceFolder}/src"
+  }
+}
