@@ -363,6 +363,18 @@ This project is licensed under the GNU General Public License v3 (GPLv3) - see t
 
 ## Summary of Changes
 
+### 2026-08-15 - v0.5.1
+
+Maintenance release. There are no changes to `acc-fwu`'s behaviour, CLI, or runtime dependency set — upgrading from v0.5.0 is optional.
+
+- **Dependency & Build Updates**:
+  - Upgraded pinned development requirements: `certifi` 2026.6.17 → 2026.7.22 and `charset-normalizer` 3.4.8 → 3.5.0. These pins are used for local development and CI; the published package still declares an unpinned `requests` dependency, so installed environments are unaffected.
+  - Raised the build requirements to `setuptools>=83.0.0` and `setuptools_scm>=10.2.1`.
+- **CI/CD**:
+  - Removed Snyk from the `scan` job. Bandit remains in-pipeline, with CodeQL and dependency review running as separate workflows.
+- **Development**:
+  - Added a dev container (`.devcontainer/devcontainer.json`) pinning the Python 3.14 toolchain, with the virtualenv on a named volume and the project installed in editable mode on create.
+
 ### 2026-07-09 - v0.5.0
 
 - **Breaking Changes**:
