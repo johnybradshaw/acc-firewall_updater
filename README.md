@@ -363,6 +363,14 @@ This project is licensed under the GNU General Public License v3 (GPLv3) - see t
 
 ## Summary of Changes
 
+### 2026-10-22 - v0.5.2
+
+Maintenance release. There are no changes to `acc-fwu`'s behaviour, CLI, or runtime dependency set — upgrading from v0.5.1 is optional.
+
+- **Dependency & Build Updates**:
+  - Upgraded pinned development requirements: `charset-normalizer` 3.5.0 → 3.5.1, `idna` 3.18 → 3.20 and `urllib3` 2.7.0 → 2.8.0. These pins are used for local development and CI; the published package still declares an unpinned `requests` dependency, so installed environments are unaffected.
+  - Raised the build requirements to `setuptools>=84.0.0` and `setuptools_scm>=10.3.4`.
+
 ### 2026-08-15 - v0.5.1
 
 Maintenance release. There are no changes to `acc-fwu`'s behaviour, CLI, or runtime dependency set — upgrading from v0.5.0 is optional.
