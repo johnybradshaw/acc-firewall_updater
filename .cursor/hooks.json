@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "matcher": "Read|Grep|Glob|Search|Shell",
+        "command": "node \"/mnt/backups/github/acc-firewall_updater/.cursor/hooks/trail-hooks.cjs\" cursor-post-tool || exit 0"
+      }
+    ],
+    "afterMCPExecution": [
+      {
+        "command": "node \"/mnt/backups/github/acc-firewall_updater/.cursor/hooks/trail-hooks.cjs\" cursor-mcp || exit 0"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "node \"/mnt/backups/github/acc-firewall_updater/.cursor/hooks/trail-hooks.cjs\" cursor-session-end || exit 0"
+      }
+    ]
+  }
+}
